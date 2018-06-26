@@ -26,14 +26,14 @@ DEFINE_uint64(metrics_dump_interval, 0, "if greater than 0, the benchmark "
               "driver dumps metrics at this fixed interval (in seconds)");
 DEFINE_int32(affinity, 1, "affinity to use in scheduling threads");
 DEFINE_uint64(descriptor_pool_size, 262144, "number of total descriptors");
-DEFINE_string(shm_segment, "mwcas", "name of the shared memory segment for"
+DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
     " descriptors and data (for persistent MwCAS only)");
 DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
     " operations");
 #ifdef PMEM
 DEFINE_uint64(write_delay_ns, 0, "NVRAM write delay (ns)");
 DEFINE_bool(emulate_write_bw, false, "Emulate write bandwidth");
-DEFINE_bool(clflush, false, "Use CLFLUSH, instead of spinning delays."
+DEFINE_bool(clflush, true, "Use CLFLUSH, instead of spinning delays."
   "write_dealy_ns and emulate_write_bw will be ignored.");
 #endif
 
@@ -100,10 +100,13 @@ struct MwCas : public Benchmark {
     s = segment->Attach();
     RAW_CHECK(s.ok(), "cannot attach");
 
-    uintptr_t base_address = *(uintptr_t*)segment->GetMapAddress();
+    //uintptr_t base_address = *(uintptr_t*)segment->GetMapAddress();
+	uintptr_t base_address = *(uintptr_t*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(uint64_t));
     if(base_address) {
+      std::cout << "base_address:" << std::hex << base_address << std::endl;
       old = true;
-      // An existing pool, with valid descriptors and data
+	  // An existing pool, with valid descriptors and data
       if(base_address != (uintptr_t)segment->GetMapAddress()) {
         segment->Detach();
         s = segment->Attach((void*)base_address);
@@ -205,6 +208,7 @@ struct MwCas : public Benchmark {
     uint64_t epochs = 0;
 
     descriptor_pool_->GetEpoch()->Protect();
+	
     uint64_t n_success = 0;
     while(!IsShutdown()) {
       if(++epochs == kEpochThreshold) {
@@ -240,8 +244,8 @@ struct MwCas : public Benchmark {
     }
     descriptor_pool_->GetEpoch()->Unprotect();
     auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
-    LOG(INFO) << "Thread " << thread_index << " success updates: " <<
-        n_success << " " << n;
+    LOG(INFO) << "Thread " << thread_index << " n_success: " <<
+        n_success << ", " << n << ", total_success_:" << total_success_;
   }
 
   uint64_t GetOperationCount() {
@@ -345,6 +349,9 @@ void RunBenchmark() {
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
   google::ParseCommandLineFlags(&argc, &argv, true);
+  
+  FLAGS_log_dir = "./";
+  
 #ifdef WIN32
   pmwcas::InitLibrary(pmwcas::DefaultAllocator::Create,
                       pmwcas::DefaultAllocator::Destroy,
