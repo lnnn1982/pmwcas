@@ -322,9 +322,11 @@ Status RunMwCas() {
       static_cast<AffinityPattern>(FLAGS_affinity),
       FLAGS_metrics_dump_interval);
 
-  printf("mwcas: %.2f ops/sec\n",
+  printf("mwcas: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
+  	  test.GetRunSeconds(),
       (double)test.GetOperationCount() / test.GetRunSeconds());
-  printf("mwcas: %.2f successful updates/sec\n",
+  printf("mwcas: totalSuc:%.0f, sec:%.3f, %.2f successful updates/sec\n",(double)test.GetTotalSuccess(),
+  	  test.GetRunSeconds(),
       (double)test.GetTotalSuccess() / test.GetRunSeconds());
   return Status::OK();
 }

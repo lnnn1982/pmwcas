@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
+#include <iostream>
 
 #include <glog/logging.h>
 
@@ -207,6 +208,9 @@ Status EpochManager::MinEpochTable::Uninitialize() {
 *      the library has entered some non-serviceable state.
 */
 Status EpochManager::MinEpochTable::Protect(Epoch current_epoch) {
+  //std::cout << "threadid:" << std::this_thread::get_id() << ", Protect, "
+  	//<< "current epoch:" << current_epoch << std::endl;
+
   Entry* entry = nullptr;
   RETURN_NOT_OK(GetEntryForThread(&entry));
 
@@ -357,6 +361,11 @@ EpochManager::MinEpochTable::ReserveEntry(uint64_t start_index,
     for(uint64_t i = 0; i < size_; ++i) {
       uint64_t indexToTest = (start_index + i) & (size_ - 1);
       Entry& entry = table_[indexToTest];
+
+      //nan test trace
+	  //LOG(ERROR) << "ReserveEntry start_index:" << start_index << ", thread_id:"
+  	    //<< thread_id << ", indexToTest:" << indexToTest << ", i:" << i;
+	  
       if(entry.thread_id == 0) {
         uint64_t expected = 0;
         // Atomically grab a slot. No memory barriers needed.

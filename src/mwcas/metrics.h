@@ -66,17 +66,17 @@ struct MwCASMetrics {
   inline void Print() {
     if(!enabled) return;
     auto update_attempts = GetUpdateAttemptCount();
-    std::cout << "> UpdateAttempts " << update_attempts
-              << " (success " << succeeded_update_count
-              << " failure " << failed_update_count << ")" << std::endl;
+    std::cout << "> UpdateAttempts " << std::dec << update_attempts
+              << " (success " << std::dec << succeeded_update_count
+              << " failure " << std::dec << failed_update_count << ")" << std::endl;
     printf("> UpdateFailurePercent %2f\n",
       (double)failed_update_count / (double)update_attempts * 100);
-    std::cout << "> Reads " << read_count << std::endl;
-    std::cout << "> DescriptorScavenges " <<
+    std::cout << "> Reads " << std::dec << read_count << std::endl;
+    std::cout << "> DescriptorScavenges " << std::dec <<
       descriptor_scavenge_count << std::endl;
-    std::cout << "> HelpAttempts " << help_attempt_count << std::endl;
-    std::cout << "> BailedHelpAttempts " << bailed_help_count << std::endl;
-    std::cout << "> DecsriptorAllocations " <<
+    std::cout << "> HelpAttempts " << std::dec << help_attempt_count << std::endl;
+    std::cout << "> BailedHelpAttempts " << std::dec << bailed_help_count << std::endl;
+    std::cout << "> DecsriptorAllocations " << std::dec <<
       descriptor_alloc_count << std::endl;
   }
 

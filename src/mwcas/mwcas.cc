@@ -79,6 +79,8 @@ DescriptorPool::DescriptorPool(
   // If a pool area is provided, recover from it. Otherwise create a new one.
   // A new descriptor pool area always comes zeroed.
   RAW_CHECK(pool_size_ > 0, "invalid pool size");
+  
+  //std::cout << "descriptors_:" << (uintptr_t)descriptors_ << std::endl;
 
   if(descriptors_) {
     Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
@@ -86,6 +88,10 @@ DescriptorPool::DescriptorPool(
               "invalid initial address");
     RAW_CHECK(metadata->descriptor_count == pool_size_,
               "wrong descriptor pool size");
+
+	//uintptr_t descriptor0 = *(uintptr_t*)(descriptors_);
+    //std::cout << "descriptors_[0]:" << descriptor0 << std::endl;
+	//std::cout << "descriptors_[0].status_:" << descriptors_[0].status_ << std::endl;
 
     // If it is an existing pool, see if it has anything in it
     uint64_t in_progress_desc = 0, redo_words = 0, undo_words = 0;

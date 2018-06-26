@@ -161,6 +161,11 @@ public:
     inline void PersistAddress() {
       NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
     }
+
+	//nan test
+	//inline void PersistAddress() {
+      //NVRAM::Flush(sizeof(uint64_t*), (void*)address_);
+    //}
 #endif
 
   };

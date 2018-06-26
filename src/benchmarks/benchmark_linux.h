@@ -120,16 +120,19 @@ class Benchmark {
       is_shutdown_.store(true, std::memory_order_release);
 
       // Wait for all threads to finish their workload
-      while(threads_finished_.load() < thread_count) {
-        Environment::Get()->Sleep(10);
-      }
+      //test nan if necessary
+      //while(threads_finished_.load() < thread_count) {
+        //Environment::Get()->Sleep(10);
+      //}
     }
 
     for(auto& thread : threads) {
       thread.join();
     }
 
+    //test nan if necessary
     while(0 == end_.load());
+    
     unique_dump_id = __rdtsc();
 
     VLOG(1) << "Benchmark stopped.";

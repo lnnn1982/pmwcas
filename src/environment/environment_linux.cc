@@ -17,6 +17,7 @@
 #include "util/auto_ptr.h"
 #include "util/macros.h"
 #include <glog/logging.h>
+#include <iostream>
 
 namespace pmwcas {
 
@@ -223,11 +224,14 @@ Status LinuxSharedMemorySegment::Initialize(const std::string& segname,
 Status LinuxSharedMemorySegment::Attach(void* base_address) {
   map_address_ = mmap(base_address, size_, PROT_READ|PROT_WRITE,
       MAP_SHARED|MAP_LOCKED, map_fd_, (off_t)0);
+  std::cout << "map_address_:" << map_address_ << std::endl;
+
   if(MAP_FAILED == map_address_) {
     return Status::IOError(
         "Failed to attach to shared memory segment " + segment_name_ +
         " of " + std::to_string(size_) + " bytes with base address " +
-        std::to_string((uint64_t)base_address), std::string(strerror(errno)));
+        std::to_string((uint64_t)base_address), std::string(strerror(errno))
+        + ", errorNo:" + std::to_string(errno));
   }
   return Status::OK();
 }
