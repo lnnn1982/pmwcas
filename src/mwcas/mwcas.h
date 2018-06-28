@@ -159,13 +159,10 @@ public:
 #ifdef PMEM
     /// Persist the content of address_
     inline void PersistAddress() {
-      NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
+      //NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
+	  //nan test
+	  NVRAM::Flush(sizeof(uint64_t), (void*)address_);
     }
-
-	//nan test
-	//inline void PersistAddress() {
-      //NVRAM::Flush(sizeof(uint64_t*), (void*)address_);
-    //}
 #endif
 
   };
