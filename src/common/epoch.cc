@@ -363,8 +363,8 @@ EpochManager::MinEpochTable::ReserveEntry(uint64_t start_index,
       Entry& entry = table_[indexToTest];
 
       //nan test trace
-	  //LOG(ERROR) << "ReserveEntry start_index:" << start_index << ", thread_id:"
-  	    //<< thread_id << ", indexToTest:" << indexToTest << ", i:" << i;
+	  LOG(ERROR) << "ReserveEntry start_index:" << start_index << ", thread_id:"
+  	    << thread_id << ", indexToTest:" << indexToTest << ", i:" << i;
 	  
       if(entry.thread_id == 0) {
         uint64_t expected = 0;

@@ -225,6 +225,11 @@ public:
   /// Abort the MwCAS operation, can be used only before the operation starts.
   Status Abort();
 
+    /// Returns whether the value given is an MwCAS descriptor or not.
+  inline static bool isDescriptorPtr(uint64_t value) {
+    return IsMwCASDescriptorPtr(value) || IsCondCASDescriptorPtr(value);
+  }
+
 private:
   /// Allow tests to access privates for failure injection purposes.
   FRIEND_TEST(PMwCASTest, SingleThreadedRecovery);
