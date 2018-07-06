@@ -5,6 +5,7 @@
 #include <string>
 
 #include "mwcas_benchmark.h"
+#include "fetchStoreStore.h"
 
 #include "util/core_local.h"
 #include "util/random_number_generator.h"
@@ -62,8 +63,6 @@ void DumpArgs() {
   }
 #endif
 }
-
-
 
 struct MwCas : public Benchmark {
   MwCas()
@@ -316,18 +315,19 @@ struct MwCas : public Benchmark {
 
 struct FetchStore : public MwCas {
 	void Main(size_t thread_index) {
-        CasPtr* address[2] = {0,0};
-	    CasPtr value[2] = {0,0};
+		FetchStoreStore fetchStoreStore(descriptor_pool_);
 	    RandomNumberGenerator rng(FLAGS_seed + thread_index, 0, FLAGS_array_size);
-	    auto s = MwCASMetrics::ThreadInitialize();
+		auto s = MwCASMetrics::ThreadInitialize();
 	    RAW_CHECK(s.ok(), "Error initializing thread");
 	    WaitForStart();
-	    const uint64_t kEpochThreshold = 100;
+
+		const uint64_t kEpochThreshold = 100;
 	    uint64_t epochs = 0;
 
 	    descriptor_pool_->GetEpoch()->Protect();
 		
 	    uint64_t n_success = 0;
+		uint64_t newValue = 0;
 	    while(!IsShutdown()) {
 	        if(++epochs == kEpochThreshold) {
 	            descriptor_pool_->GetEpoch()->Unprotect();
@@ -335,68 +335,43 @@ struct FetchStore : public MwCas {
 	            epochs = 0;
 	        }
 
-	        // Pick a random word each time
-	        for(uint32_t i = 0; i < 2; ++i) {
-	        retry:
-	            uint64_t idx = rng.Generate(FLAGS_array_size);
-	            for(uint32_t j = 0; j < i; ++j) {
-	                if(address[j] == reinterpret_cast<CasPtr*>(&test_array_[idx])) {
-	                    goto retry;
-	                }
-	            }
-	        address[i] = reinterpret_cast<CasPtr*>(&test_array_[idx]);
-	        value[i] = test_array_[idx].GetValueProtected();
-	        CHECK(value[i] % (4 * FLAGS_array_size) >= 0 &&
-	            (value[i] % (4 * FLAGS_array_size)) / 4 < FLAGS_array_size);
-	        }
+			uint64_t targetIdx = rng.Generate(FLAGS_array_size);
+			CasPtr* targetAddress = reinterpret_cast<CasPtr*>(&test_array_[targetIdx]);
 
-			uint64_t newValue = 256;
-	        Descriptor* descriptor = descriptor_pool_->AllocateDescriptor();
-	        CHECK_NOTNULL(descriptor);
-	        descriptor->AddEntry((uint64_t*)(address[0]), uint64_t(value[0]),
-	            newValue);
-	        descriptor->AddEntry((uint64_t*)(address[1]), uint64_t(value[1]),
-	            value[0]);
-	      
-	        bool status = false;
-	        status = descriptor->MwCAS();
-	        n_success += (status == true);
+			uint64_t storeIdx = 0;
+			while(1) {
+				storeIdx = rng.Generate(FLAGS_array_size);
+				if(storeIdx != targetIdx) {
+					break;
+				}
+			}
+			
+			CasPtr* storeAddress = reinterpret_cast<CasPtr*>(&test_array_[storeIdx]);
+			
+			newValue += 4;
+			fetchStoreStore.process(targetAddress, storeAddress, newValue);
+	        n_success += 1;
 	    }
-	    descriptor_pool_->GetEpoch()->Unprotect();
+		descriptor_pool_->GetEpoch()->Unprotect();
+		
 	    auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
 	    LOG(INFO) << "Thread " << thread_index << " n_success: " <<
-	        n_success << ", " << n << ", total_success_:" << total_success_;
+	            n_success << ", " << n << ", total_success_:" << total_success_;
 	}
 
+	
 	void Teardown() {
-		if(FLAGS_array_size > 100) {
-		  return;
-		}
-		// Check the array for correctness
-		unique_ptr_t<int64_t> found = alloc_unique<int64_t>(
-		  sizeof(int64_t) * FLAGS_array_size);
-	
 		for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-		  found.get()[i] = 0;
+		  LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)test_array_[i];
 		}
+    }
+
 	
-		for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-		  uint32_t idx =
-			uint32_t((uint64_t(test_array_[i]) % (4 * FLAGS_array_size)) / 4);
-		  LOG(INFO) << "idx=" << idx << ", pos=" << i << ", val=" <<
-			(uint64_t)test_array_[i];
-	
-		  if(!(idx >= 0 && idx < FLAGS_array_size)) {
-			LOG(INFO) << "Invalid: pos=" << i << "val=" << uint64_t(test_array_[i]);
-			continue;
-		  }
-		  found.get()[idx]++;
-		}
-	  }
-};
 
 
-} // namespace pmwcas
+} ;
+
+}// namespace pmwcas
 
 using namespace pmwcas;
 
@@ -423,17 +398,16 @@ Status RunFetchStore() {
       static_cast<AffinityPattern>(FLAGS_affinity),
       FLAGS_metrics_dump_interval);
 
-  printf("fetch store: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
+  printf("multiple cas: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
   	  test.GetRunSeconds(),
       (double)test.GetOperationCount() / test.GetRunSeconds());
-  printf("fetch store: totalSuc:%.0f, sec:%.3f, %.2f successful updates/sec\n",(double)test.GetTotalSuccess(),
-  	  test.GetRunSeconds(),
-      (double)test.GetTotalSuccess() / test.GetRunSeconds());
+  printf("fetch store: totalSuc:%.0f, sec:%.3f, %.2f successful updates/sec\n",
+  	(double)test.GetTotalSuccess(),
+  	 test.GetRunSeconds(),
+     (double)test.GetTotalSuccess() / test.GetRunSeconds());
+
   return Status::OK();
 }
-
-
-
 
 void RunBenchmark() {
   std::string benchmark_name{};
