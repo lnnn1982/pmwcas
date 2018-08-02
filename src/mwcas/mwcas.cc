@@ -147,6 +147,7 @@ DescriptorPool::DescriptorPool(
             uint64_t val = Descriptor::CleanPtr(*word.address_);
             RAW_CHECK(val != (uint64_t)&word, "invalid field value");
 
+            //this value could be modified by another thread after the status is successfull
             if(val == (uint64_t)&desc) {
               *word.address_ = word.new_value_;
 #ifdef PMEM
@@ -577,7 +578,7 @@ inline bool Descriptor::PersistentMwCAS(uint32_t calldepth) {
     CompareExchange32(&status_, status & ~kStatusDirtyFlag, status);
     status &= ~kStatusDirtyFlag;
   }
-  if(status != kStatusUndecided) {
+  /*if(status != kStatusUndecided) {
     if(calldepth > 0) {
       // Operation has already concluded, return.
       MwCASMetrics::AddBailedHelp();
@@ -585,7 +586,7 @@ inline bool Descriptor::PersistentMwCAS(uint32_t calldepth) {
     } else {
       return Cleanup();
     }
-  }
+  }*/
 
   uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
   uint32_t my_status = kStatusSucceeded;

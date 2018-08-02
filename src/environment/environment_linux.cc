@@ -161,6 +161,8 @@ Status LinuxEnvironment::SetThreadAffinity(pthread_t thread, uint64_t core,
     core = pcore;
   } else {
     // Assuming 0-n are all the physical cores
+	uint32_t core_count = sysconf(_SC_NPROCESSORS_ONLN);
+	core = core%core_count;
   }
 
   cpu_set_t cpuset;

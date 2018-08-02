@@ -160,7 +160,9 @@ class TlsAllocator : public IAllocator {
   }
 
   struct Slab {
-    static const uint64_t kSlabSize = 512 * 1024 * 1024;  // 512MB
+    //nan test
+    //static const uint64_t kSlabSize = 512 * 1024 * 1024;  // 512MB
+    static const uint64_t kSlabSize = 64 * 1024 * 1024;  //this is for one thread
     TlsAllocator* tls_allocator;
     uint64_t allocated;
     void* memory;

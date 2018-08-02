@@ -19,7 +19,7 @@ DEFINE_string(benchmarks,
 DEFINE_uint64(array_size, 100, "size of the word array for mwcas benchmark");
 DEFINE_uint64(seed, 1234, "base random number generator seed, the thread index"
     "is added to this number to form the full seed");
-DEFINE_uint64(word_count, 4, "number of words in the multi-word compare and"
+DEFINE_uint64(word_count, 2, "number of words in the multi-word compare and"
     " swap");
 DEFINE_uint64(threads, 2, "number of threads to use for multi-threaded tests");
 DEFINE_uint64(seconds, 30, "default time to run a benchmark");
@@ -131,6 +131,8 @@ struct MwCas : public Benchmark {
     }
     pool_va = (Descriptor*)((uintptr_t)segment->GetMapAddress() +
       sizeof(DescriptorPool::Metadata));
+
+	std::cout << "descriptor begin addr:" << pool_va << ", array begin addr:" << test_array_ << std::endl;
 #else
     // Allocate the thread array and initialize to consecutive even numbers
     test_array_ = reinterpret_cast<CasPtr*>(

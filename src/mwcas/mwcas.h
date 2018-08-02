@@ -90,6 +90,8 @@ struct DescriptorPartition;
 class Descriptor;
 class DescriptorPool;
 
+//static uint64_t persisCoutFlg = 0; 
+
 class alignas(kCacheLineSize) Descriptor {
   template<typename T> friend class MwcTargetField;
 
@@ -156,9 +158,15 @@ public:
           offsetof(Descriptor, status_));
     }
 
+	
 #ifdef PMEM
     /// Persist the content of address_
     inline void PersistAddress() {
+	    /*if(persisCoutFlg == 0) {
+			LOG(ERROR) << "address:" << address_ << ", address1:" << (&address_);
+			persisCoutFlg = 1;
+		}*/
+		
       //NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
 	  //nan test
 	  NVRAM::Flush(sizeof(uint64_t), (void*)address_);
@@ -216,7 +224,7 @@ public:
                                uint32_t recycle_policy = kRecycleNever);
 
   /// Reserve a slot in the words array, but don't know what the new value is
-  /// yet. The application should use GetNewValue[Ptr] to fill in later.
+  /// yet. The application should use GetNewValuePtr to fill in later.
   inline uint32_t ReserveAndAddEntry(uint64_t* addr, uint64_t oldval,
                                      uint32_t recycle_policy = kRecycleNever) {
     return AddEntry(addr, oldval, kNewValueReserved, recycle_policy);
@@ -230,7 +238,7 @@ public:
     return IsMwCASDescriptorPtr(value) || IsCondCASDescriptorPtr(value);
   }
 
-private:
+protected:
   /// Allow tests to access privates for failure injection purposes.
   FRIEND_TEST(PMwCASTest, SingleThreadedRecovery);
 
@@ -371,7 +379,7 @@ private:
 
   /// Setting kMaxCount to 4 so MwCASDescriptor occupies three cache lines. If
   /// changing this, also remember to adjust the static assert below.
-  static const int kMaxCount = 4;
+  static const int kMaxCount = 2;
 
   /// Free list pointer for managing free pre-allocated descriptor pools
   Descriptor* next_ptr_;
@@ -568,7 +576,7 @@ public:
     return value_;
   }
 
-private:
+protected:
 #ifndef PMEM
   /// Return the value in this word. If the value is a descriptor there is a CAS
   /// in progress, so help along completing the CAS before returning the value
@@ -728,6 +736,7 @@ retry:
     return val;
   }
 #endif
+
 
   /// The 8-byte target word
   volatile T value_;
