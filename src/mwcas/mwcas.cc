@@ -31,15 +31,8 @@ DescriptorPartition::~DescriptorPartition() {
     garbage_list->Uninitialize();
 }
 
-DescriptorPool::DescriptorPool(
-    uint32_t pool_size, uint32_t partition_count, Descriptor* desc_va,
-    bool enable_stats)
-    : pool_size_(pool_size),
-      descriptors_(desc_va),
-      partition_count_(partition_count),
-      partition_table_(nullptr),
-      next_partition_(0) {
-
+void DescriptorPool::initVariable(bool enable_stats)
+{
   MwCASMetrics::enabled = enable_stats;
 
   auto s = MwCASMetrics::Initialize();
@@ -79,6 +72,18 @@ DescriptorPool::DescriptorPool(
   // If a pool area is provided, recover from it. Otherwise create a new one.
   // A new descriptor pool area always comes zeroed.
   RAW_CHECK(pool_size_ > 0, "invalid pool size");
+}
+
+DescriptorPool::DescriptorPool(
+    uint32_t pool_size, uint32_t partition_count, Descriptor* desc_va,
+    bool enable_stats)
+    : pool_size_(pool_size),
+      descriptors_(desc_va),
+      partition_count_(partition_count),
+      partition_table_(nullptr),
+      next_partition_(0) 
+{
+  initVariable(enable_stats);
   
   //std::cout << "descriptors_:" << (uintptr_t)descriptors_ << std::endl;
 

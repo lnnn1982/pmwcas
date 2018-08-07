@@ -13,24 +13,23 @@
 using namespace pmwcas::benchmark;
 
 DEFINE_string(benchmarks,
-    "mwcas", "Comma-separated list of benchmarks to run in the specified order."
-    " Available benchmarks:\n\tmwcas -- Configurable multi-threaded benchmark"
-    " for multi-word cas\n");
+    "FASAS", "fetch store and store");
 DEFINE_uint64(array_size, 100, "size of the word array for mwcas benchmark");
 DEFINE_uint64(seed, 1234, "base random number generator seed, the thread index"
     "is added to this number to form the full seed");
 DEFINE_uint64(word_count, 2, "number of words in the multi-word compare and"
     " swap");
-DEFINE_uint64(threads, 2, "number of threads to use for multi-threaded tests");
+DEFINE_uint64(threads, 8, "number of threads to use for multi-threaded tests");
 DEFINE_uint64(seconds, 30, "default time to run a benchmark");
 DEFINE_uint64(metrics_dump_interval, 0, "if greater than 0, the benchmark "
               "driver dumps metrics at this fixed interval (in seconds)");
 DEFINE_int32(affinity, 1, "affinity to use in scheduling threads");
-DEFINE_uint64(descriptor_pool_size, 262144, "number of total descriptors");
+DEFINE_uint64(descriptor_pool_size, 1048576, "number of total descriptors");
 DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
     " descriptors and data (for persistent MwCAS only)");
 DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
     " operations");
+DEFINE_int32(FASAS_BASE_TYPE, 0, "fetch store store base type ");
 #ifdef PMEM
 DEFINE_uint64(write_delay_ns, 0, "NVRAM write delay (ns)");
 DEFINE_bool(emulate_write_bw, false, "Emulate write bandwidth");
@@ -64,14 +63,78 @@ void DumpArgs() {
 #endif
 }
 
-struct MwCas : public Benchmark {
-  MwCas()
-    : Benchmark{}
-    , previous_dump_run_ticks_{}
-    , cumulative_stats_ {} {
+//////////////////////////////////////////////////////////////////////////////////////////////////
+struct BaseMwCas : public Benchmark {
+  BaseMwCas()
+    : Benchmark()
+    , previous_dump_run_ticks_()
+    , cumulative_stats_ () {
     total_success_ = 0;
   }
 
+  uint64_t GetOperationCount() {
+    MwCASMetrics metrics;
+    MwCASMetrics::Sum(metrics);
+    return metrics.GetUpdateAttemptCount();
+  }
+
+  uint64_t GetTotalSuccess() {
+    return total_success_.load();
+  }
+
+  virtual void Dump(size_t thread_count, uint64_t run_ticks, uint64_t dump_id,
+      bool final_dump) {
+    MARK_UNREFERENCED(thread_count);
+    uint64_t interval_ticks = 0;
+    if(final_dump) {
+      interval_ticks = run_ticks;
+    } else {
+      interval_ticks = run_ticks - previous_dump_run_ticks_;
+      previous_dump_run_ticks_ = run_ticks;
+    }
+    Benchmark::Dump(thread_count, run_ticks, dump_id, final_dump);
+
+    MwCASMetrics stats;
+    MwCASMetrics::Sum(stats);
+    if(!final_dump) {
+      stats -= cumulative_stats_;
+      cumulative_stats_ += stats;
+    }
+
+    stats.Print();
+
+#ifdef WIN32
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    uint64_t ticks_per_second = frequency.QuadPart;
+#else
+    uint64_t ticks_per_second = 1000000;
+#endif
+    std::cout << "> Benchmark " << dump_id << " TicksPerSecond " <<
+      ticks_per_second << std::endl;
+    std::cout << "> Benchmark " << dump_id << " RunTicks " <<
+      run_ticks << std::endl;
+
+    double run_seconds = (double)run_ticks / ticks_per_second;
+    std::cout << "> Benchmark " << dump_id << " RunSeconds " <<
+      run_seconds << std::endl;
+
+    std::cout << "> Benchmark " << dump_id << " IntervalTicks " <<
+      interval_ticks << std::endl;
+    double interval_seconds = (double)interval_ticks / ticks_per_second;
+    std::cout << "> Benchmark " << dump_id << " IntervalSeconds " <<
+      interval_seconds << std::endl;
+  }
+
+
+  uint64_t previous_dump_run_ticks_;
+  MwCASMetrics cumulative_stats_;
+  std::atomic<uint64_t> total_success_;
+};
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+struct MwCas : public BaseMwCas {
   void Setup(size_t thread_count) {
     // Ideally the descriptor pool is sized to the number of threads in the
     // benchmark to reduce need for new allocations, etc.
@@ -79,7 +142,7 @@ struct MwCas : public Benchmark {
                          Allocator::Get()->Allocate(sizeof(DescriptorPool)));
     Descriptor* pool_va = nullptr;
     std::string segname(FLAGS_shm_segment);
-    persistent_ = (segname.size() != 0);
+    //persistent_ = (segname.size() != 0);
     bool old = false;
 #ifdef PMEM
     if(FLAGS_clflush) {
@@ -252,130 +315,296 @@ struct MwCas : public Benchmark {
         n_success << ", " << n << ", total_success_:" << total_success_;
   }
 
-  uint64_t GetOperationCount() {
-    MwCASMetrics metrics;
-    MwCASMetrics::Sum(metrics);
-    return metrics.GetUpdateAttemptCount();
-  }
-
-  uint64_t GetTotalSuccess() {
-    return total_success_.load();
-  }
-
-  virtual void Dump(size_t thread_count, uint64_t run_ticks, uint64_t dump_id,
-      bool final_dump) {
-    MARK_UNREFERENCED(thread_count);
-    uint64_t interval_ticks = 0;
-    if(final_dump) {
-      interval_ticks = run_ticks;
-    } else {
-      interval_ticks = run_ticks - previous_dump_run_ticks_;
-      previous_dump_run_ticks_ = run_ticks;
-    }
-    Benchmark::Dump(thread_count, run_ticks, dump_id, final_dump);
-
-    MwCASMetrics stats;
-    MwCASMetrics::Sum(stats);
-    if(!final_dump) {
-      stats -= cumulative_stats_;
-      cumulative_stats_ += stats;
-    }
-
-    stats.Print();
-
-#ifdef WIN32
-    LARGE_INTEGER frequency;
-    QueryPerformanceFrequency(&frequency);
-    uint64_t ticks_per_second = frequency.QuadPart;
-#else
-    uint64_t ticks_per_second = 1000000;
-#endif
-    std::cout << "> Benchmark " << dump_id << " TicksPerSecond " <<
-      ticks_per_second << std::endl;
-    std::cout << "> Benchmark " << dump_id << " RunTicks " <<
-      run_ticks << std::endl;
-
-    double run_seconds = (double)run_ticks / ticks_per_second;
-    std::cout << "> Benchmark " << dump_id << " RunSeconds " <<
-      run_seconds << std::endl;
-
-    std::cout << "> Benchmark " << dump_id << " IntervalTicks " <<
-      interval_ticks << std::endl;
-    double interval_seconds = (double)interval_ticks / ticks_per_second;
-    std::cout << "> Benchmark " << dump_id << " IntervalSeconds " <<
-      interval_seconds << std::endl;
-  }
-
   CasPtr* test_array_;
-  bool persistent_;
+  //bool persistent_;
   unique_ptr_t<CasPtr> test_array_guard_;
   DescriptorPool* descriptor_pool_;
-  uint64_t previous_dump_run_ticks_;
-  MwCASMetrics cumulative_stats_;
-  std::atomic<uint64_t> total_success_;
+
 };
 
-struct FetchStore : public MwCas {
-	void Main(size_t thread_index) {
-		FetchStoreStore fetchStoreStore(descriptor_pool_);
-	    RandomNumberGenerator rng(FLAGS_seed + thread_index, 0, FLAGS_array_size);
-		auto s = MwCASMetrics::ThreadInitialize();
-	    RAW_CHECK(s.ok(), "Error initializing thread");
-	    WaitForStart();
+//////////////////////////////////////////////////////////////////////////////////////////////////
+struct BaseFASASTest : public BaseMwCas {
+  SharedMemorySegment* initSharedMemSegment(std::string const & segmentName, uint64_t size) {
+    SharedMemorySegment* segment = nullptr;
+    auto s = Environment::Get()->NewSharedMemorySegment(segmentName, size, true,
+        &segment);
+    RAW_CHECK(s.ok() && segment, "Error creating memory segment");
 
-		const uint64_t kEpochThreshold = 100;
-	    uint64_t epochs = 0;
+    // Attach anywhere to extract the base address we used last time
+    s = segment->Attach();
+    RAW_CHECK(s.ok(), "cannot attach");
 
-	    descriptor_pool_->GetEpoch()->Protect();
-		
-	    uint64_t n_success = 0;
-		uint64_t newValue = 0;
-	    while(!IsShutdown()) {
-	        if(++epochs == kEpochThreshold) {
-	            descriptor_pool_->GetEpoch()->Unprotect();
-	            descriptor_pool_->GetEpoch()->Protect();
-	            epochs = 0;
-	        }
+	uintptr_t base_address = *(uintptr_t*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(uint64_t));
+    if(base_address) {
+      std::cout << "base_address:" << std::hex << base_address << std::endl;
+	  // An existing pool, with valid descriptors and data
+      if(base_address != (uintptr_t)segment->GetMapAddress()) {
+        segment->Detach();
+        s = segment->Attach((void*)base_address);
+        if(!s.ok()) {
+          LOG(FATAL) << "Cannot attach to the segment with given base address";
+        }
+      }
+    } 
+    else {
+      // New pool/data area, store this base address, pass it + meatadata_size
+      // as desc pool va
+      void* map_address = segment->GetMapAddress();
+      DescriptorPool::Metadata *metadata = (DescriptorPool::Metadata*)map_address;
+      metadata->descriptor_count = FLAGS_descriptor_pool_size;
+      metadata->initial_address = (uintptr_t)map_address;
 
-			uint64_t targetIdx = rng.Generate(FLAGS_array_size);
-			CasPtr* targetAddress = reinterpret_cast<CasPtr*>(&test_array_[targetIdx]);
-
-			uint64_t storeIdx = 0;
-			while(1) {
-				storeIdx = rng.Generate(FLAGS_array_size);
-				if(storeIdx != targetIdx) {
-					break;
-				}
-			}
-			
-			CasPtr* storeAddress = reinterpret_cast<CasPtr*>(&test_array_[storeIdx]);
-			
-			newValue += 4;
-			fetchStoreStore.process(targetAddress, storeAddress, newValue);
-	        n_success += 1;
-	    }
-		descriptor_pool_->GetEpoch()->Unprotect();
-		
-	    auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
-	    LOG(INFO) << "Thread " << thread_index << " n_success: " <<
-	            n_success << ", " << n << ", total_success_:" << total_success_;
-	}
-
-	
-	void Teardown() {
-		for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-		  LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)test_array_[i];
-		}
+      LOG(INFO) << "Initialized new descriptor pool and data areas";
     }
 
+    return segment;
+  }
+
+  void Main(size_t thread_index) {
+    auto s = MwCASMetrics::ThreadInitialize();
+	RAW_CHECK(s.ok(), "Error initializing thread");
+
+	RandomNumberGenerator rng(FLAGS_seed + thread_index, 0, FLAGS_array_size);
+    DescriptorPool* descPool = getDescPool();
+
+    WaitForStart();
+
+    FetchStoreStore fetchStoreStore;
+
+    const uint64_t kEpochThreshold = 100;
+	uint64_t epochs = 0;
+	descPool->GetEpoch()->Protect();
+		
+	uint64_t n_success = 0;
+	uint64_t newValue = 0;
+    while(!IsShutdown()) {
+	  if(++epochs == kEpochThreshold) {
+	    descPool->GetEpoch()->Unprotect();
+	    descPool->GetEpoch()->Protect();
+	    epochs = 0;
+      }
+
+      uint64_t targetIdx = rng.Generate(FLAGS_array_size);
+      doFASAS(targetIdx, thread_index, newValue, fetchStoreStore);
+      newValue += 4;
+	  n_success += 1;
+    }
+
+    descPool->GetEpoch()->Unprotect();
+		
+	auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
+	LOG(INFO) << "Thread " << thread_index << " n_success: " <<
+	            n_success << ", " << n << ", total_success_:" << total_success_;
+  }
+
+  virtual DescriptorPool* getDescPool() = 0;
+  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+    uint64_t newValue, FetchStoreStore & fetchStoreStore) = 0;
+    
+};
+
+ 
+//////////////////////////////////////////////////////////////////////////////////////////////////
+struct FASASTestByOrgPMwCas : public BaseFASASTest {
+  void Setup(size_t thread_count) {
+    if(FLAGS_clflush) {
+      NVRAM::InitializeClflush();
+    } else {
+      NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
+    }
+
+    std::string segname(FLAGS_shm_segment);
+    uint64_t size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(CasPtr) * FLAGS_array_size + // share data area
+                    sizeof(CasPtr) * FLAGS_threads;  // private data area
+    SharedMemorySegment* segment = initSharedMemSegment(segname, size);
+
+    shareArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(DescriptorPool::Metadata) +
+        sizeof(Descriptor) * FLAGS_descriptor_pool_size);
+    privateArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(DescriptorPool::Metadata) +
+        sizeof(Descriptor) * FLAGS_descriptor_pool_size +
+        sizeof(CasPtr) * FLAGS_array_size);
+	std::cout << "share array begin addr:" << shareArrayPtr_ 
+        << ", private array begin addr:" << privateArrayPtr_ << std::endl;
+
+    initDescriptorPool(segment);
+
+    for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+    }
+
+    for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
+      shareArrayPtr_[i] = uint64_t(0);
+    }
+
+    for(uint32_t i = 0; i < FLAGS_threads; ++i) {
+      privateArrayPtr_[i] = uint64_t(0);
+    }
+  }
+  
+  void initDescriptorPool(SharedMemorySegment* segment)
+  {
+    Descriptor * poolDesc = (Descriptor*)((uintptr_t)segment->GetMapAddress() +
+      sizeof(DescriptorPool::Metadata));
+	std::cout << "descriptor addr:" << poolDesc << std::endl;
+
+    // Ideally the descriptor pool is sized to the number of threads in the
+    // benchmark to reduce need for new allocations, etc.
+    descPool_ = reinterpret_cast<DescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(DescriptorPool)));
+    new(descPool_) DescriptorPool(
+      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+  }
+
+  virtual DescriptorPool* getDescPool() {
+    return descPool_;
+  }
+
+  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+          uint64_t newValue, FetchStoreStore & fetchStoreStore) 
+  {
+    CasPtr* targetAddress = reinterpret_cast<CasPtr*>(&(shareArrayPtr_[targetIdx])); 
+	CasPtr* storeAddress = reinterpret_cast<CasPtr*>(&privateArrayPtr_[thread_index]);
+	fetchStoreStore.processByOrgMwcas(targetAddress, storeAddress, newValue, descPool_);
+  }
 	
+  void Teardown() {
+    for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
+      LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)shareArrayPtr_[i];
+      RAW_CHECK((uint64_t)shareArrayPtr_[i] % 4 == 0, "share value not multi of 4");
+    }
 
+    LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[0];
+    RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[0]), "private variable Wrong value");
+    RAW_CHECK((uint64_t)privateArrayPtr_[0] % 4 == 0, "share value not multi of 4");
+  }
 
+  CasPtr* shareArrayPtr_;
+  CasPtr* privateArrayPtr_;
+
+  DescriptorPool* descPool_;
 } ;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
+struct FASASTest : public BaseFASASTest {
+  void Setup(size_t thread_count) {
+    if(FLAGS_clflush) {
+      NVRAM::InitializeClflush();
+    } else {
+      NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
+    }
+
+    std::string segname(FLAGS_shm_segment);
+    uint64_t size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(FASASCasPtr) * FLAGS_array_size + // share data area
+                    sizeof(FASASCasPtr) * FLAGS_threads;  // private data area
+    SharedMemorySegment* segment = initSharedMemSegment(segname, size);
+
+    shareArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(DescriptorPool::Metadata) +
+        sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size);
+    privateArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(DescriptorPool::Metadata) +
+        sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +
+        sizeof(FASASCasPtr) * FLAGS_array_size);
+	std::cout << "share array begin addr:" << shareArrayPtr_ 
+        << ", private array begin addr:" << privateArrayPtr_ << std::endl;
+
+    initDescriptorPool(segment);
+
+    // Recovering from an existing descriptor pool wouldn't cause the data area
+    // to be re-initialized, rather this provides us the opportunity to do a
+    // sanity check: no field should still point to a descriptor after recovery.
+    for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+    }
+
+    // Now we can start from a clean slate (perhaps not necessary)
+    for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
+      shareArrayPtr_[i] = uint64_t(0);
+    }
+
+    for(uint32_t i = 0; i < FLAGS_threads; ++i) {
+      privateArrayPtr_[i] = uint64_t(0);
+    }
+  }
+
+  void initDescriptorPool(SharedMemorySegment* segment)
+  {
+    FASASDescriptor * poolDesc = (FASASDescriptor*)((uintptr_t)segment->GetMapAddress() +
+      sizeof(DescriptorPool::Metadata));
+	std::cout << "descriptor addr:" << poolDesc << std::endl;
+
+    // Ideally the descriptor pool is sized to the number of threads in the
+    // benchmark to reduce need for new allocations, etc.
+    fasasDescPool_ = reinterpret_cast<FASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(FASASDescriptorPool)));
+    new(fasasDescPool_) FASASDescriptorPool(
+      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+  }
+
+  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+          uint64_t newValue, FetchStoreStore & fetchStoreStore) 
+  {
+    FASASCasPtr* targetAddress = reinterpret_cast<FASASCasPtr*>(&(shareArrayPtr_[targetIdx])); 
+	FASASCasPtr* storeAddress = reinterpret_cast<FASASCasPtr*>(&(privateArrayPtr_[thread_index]));
+    if(FLAGS_FASAS_BASE_TYPE == 1) {
+     fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
+    }
+    else {
+      fetchStoreStore.processByMwcas(targetAddress, storeAddress, newValue, fasasDescPool_);
+    }
+  }
+
+  virtual DescriptorPool* getDescPool() {
+    return fasasDescPool_;
+  }       
+	
+  void Teardown() {
+    for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
+      LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)shareArrayPtr_[i];
+      RAW_CHECK((uint64_t)shareArrayPtr_[i] % 4 == 0, "share value not multi of 4");
+    }
+
+     LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[0];
+     RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[0]), "private variable Wrong value");
+     RAW_CHECK((uint64_t)privateArrayPtr_[0] % 4 == 0, "share value not multi of 4");
+  }
+
+	
+  FASASCasPtr* shareArrayPtr_;
+  FASASCasPtr* privateArrayPtr_;
+
+  FASASDescriptorPool* fasasDescPool_;
+} ;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
 
 }// namespace pmwcas
 
 using namespace pmwcas;
+
+void doRunFetchStoreAndStore(BaseMwCas & test) {
+  std::cout << "Starting fetch store benchmark..." << std::endl;
+  test.Run(FLAGS_threads, FLAGS_seconds,
+      static_cast<AffinityPattern>(FLAGS_affinity),
+      FLAGS_metrics_dump_interval);
+
+  printf("multiple cas: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
+  	  test.GetRunSeconds(),
+      (double)test.GetOperationCount() / test.GetRunSeconds());
+  printf("fetch store: totalSuc:%.0f, sec:%.3f, %.2f successful updates/sec\n",
+  	(double)test.GetTotalSuccess(),
+  	 test.GetRunSeconds(),
+     (double)test.GetTotalSuccess() / test.GetRunSeconds());
+}
 
 Status RunMwCas() {
   MwCas test{};
@@ -393,21 +622,16 @@ Status RunMwCas() {
   return Status::OK();
 }
 
-Status RunFetchStore() {
-  FetchStore test{};
-  std::cout << "Starting fetch store benchmark..." << std::endl;
-  test.Run(FLAGS_threads, FLAGS_seconds,
-      static_cast<AffinityPattern>(FLAGS_affinity),
-      FLAGS_metrics_dump_interval);
-
-  printf("multiple cas: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
-  	  test.GetRunSeconds(),
-      (double)test.GetOperationCount() / test.GetRunSeconds());
-  printf("fetch store: totalSuc:%.0f, sec:%.3f, %.2f successful updates/sec\n",
-  	(double)test.GetTotalSuccess(),
-  	 test.GetRunSeconds(),
-     (double)test.GetTotalSuccess() / test.GetRunSeconds());
-
+Status runFetchStoreAndStore() {
+  if(FLAGS_FASAS_BASE_TYPE == 0) {
+    FASASTestByOrgPMwCas test;
+    doRunFetchStoreAndStore(test);
+  }
+  else {
+    FASASTest test;
+    doRunFetchStoreAndStore(test);
+  }
+  
   return Status::OK();
 }
 
@@ -421,8 +645,8 @@ void RunBenchmark() {
     if("mwcas" == benchmark_name) {
       s = RunMwCas();
     } 
-	else if("fetchStore" == benchmark_name) {
-        s = RunFetchStore();
+	else if("FASAS" == benchmark_name) {
+        s = runFetchStoreAndStore();
 	}
 	else {
       fprintf(stderr, "unknown benchmark name: %s\n", benchmark_name.c_str());

@@ -214,10 +214,60 @@ void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t callde
     }
 }
 
+void FASASDescriptorPool::assigneValue(uint32_t pool_size, uint32_t partition_count, 
+    FASASDescriptor* desc_va, bool enable_stats)
+{
+    pool_size_ = pool_size;
+    descriptors_ = desc_va;
+    partition_count_ = partition_count;
+    partition_table_ = nullptr;
+    next_partition_ = 0;
+}
 
+FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_count, 
+    FASASDescriptor* desc_va, bool enable_stats)
+{
+    assigneValue(pool_size, partition_count, desc_va, enable_stats);
 
+    RAW_CHECK(descriptors_, "null descriptor pool");
+    Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
+    RAW_CHECK((uint64_t)metadata->initial_address == (uint64_t)metadata,
+              "invalid initial address");
+    RAW_CHECK(metadata->descriptor_count == pool_size_,
+              "wrong descriptor pool size");
 
+    initVariable(enable_stats);
 
+    FASASDescriptor* fasasDesc = (FASASDescriptor*)(descriptors_);
+
+    //recover
+    
+    memset(fasasDesc, 0, sizeof(FASASDescriptor) * pool_size_);
+
+    // Distribute this many descriptors per partition
+    RAW_CHECK(pool_size_ > partition_count_,
+      "provided pool size is less than partition count");
+    uint32_t desc_per_partition = pool_size_ / partition_count_;
+
+    uint32_t partition = 0;
+    for(uint32_t i = 0; i < pool_size_; ++i) {
+        auto* desc = fasasDesc + i;
+        DescriptorPartition* p = partition_table_ + partition;
+        new(desc) FASASDescriptor(p);
+        desc->next_ptr_ = p->free_list;
+        p->free_list = desc;
+
+        if((i + 1) % desc_per_partition == 0) {
+          partition++;
+        }
+    }
+}
+
+FASASDescriptor* FASASDescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
+    Descriptor::FreeCallback fc)
+{
+    return (FASASDescriptor*)DescriptorPool::AllocateDescriptor(ac, fc);
+}
 
 
 

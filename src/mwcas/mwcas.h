@@ -94,6 +94,8 @@ class DescriptorPool;
 
 class alignas(kCacheLineSize) Descriptor {
   template<typename T> friend class MwcTargetField;
+  template<typename T> friend class FASASTargetField;
+
 
 public:
   /// Signifies a dirty word requiring cache line write back
@@ -238,11 +240,17 @@ public:
     return IsMwCASDescriptorPtr(value) || IsCondCASDescriptorPtr(value);
   }
 
+    /// Returns true if the target word has no pmwcas management flags set.
+  inline static bool IsCleanPtr(uint64_t value) {
+    return (value & (kCondCASFlag | kMwCASFlag | kDirtyFlag)) == 0;
+  }
+
 protected:
   /// Allow tests to access privates for failure injection purposes.
   FRIEND_TEST(PMwCASTest, SingleThreadedRecovery);
 
   friend class DescriptorPool;
+  friend class FASASDescriptorPool;
 
   /// Value signifying an internal reserved value for a new entry
   static const uint64_t kNewValueReserved = ~0ull;
@@ -324,12 +332,7 @@ protected:
     return value & kDirtyFlag;
   }
 
-  /// Returns true if the target word has no pmwcas management flags set.
-  inline static bool IsCleanPtr(uint64_t value) {
-    return (value & (kCondCASFlag | kMwCASFlag | kDirtyFlag)) == 0;
-  }
-
-  /// Clear the descriptor flag for the provided /a ptr
+   /// Clear the descriptor flag for the provided /a ptr
   static inline uint64_t CleanPtr(uint64_t ptr) {
     return ptr & ~(kMwCASFlag | kCondCASFlag | kDirtyFlag);
   }
@@ -430,7 +433,7 @@ struct alignas(kCacheLineSize)DescriptorPartition {
 };
 
 class DescriptorPool {
-private:
+protected:
   /// Total number of descriptors in the pool
   uint32_t pool_size_;
 
@@ -449,6 +452,10 @@ private:
 
   /// Epoch manager controling garbage/access to descriptors.
   EpochManager epoch_;
+
+  void initVariable(bool enable_stats);
+
+  DescriptorPool() {}
 
  public:
   /// Metadata that prefixes the actual pool of descriptors for persistence

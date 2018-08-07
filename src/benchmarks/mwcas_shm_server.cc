@@ -13,9 +13,12 @@
 using namespace pmwcas::benchmark;
 
 DEFINE_uint64(array_size, 100, "size of the word array for mwcas benchmark");
-DEFINE_uint64(descriptor_pool_size, 262144, "number of total descriptors");
+DEFINE_uint64(descriptor_pool_size, 1048576, "number of total descriptors");
 DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
   " descriptors and data (for persistent MwCAS only)");
+DEFINE_uint64(threads, 8, "number of threads to use for multi-threaded tests");
+DEFINE_string(benchmarks, "FASAS", "fetch store and store");
+DEFINE_int32(FASAS_BASE_TYPE, 0, "fetch store store base type ");
 
 using namespace pmwcas;
 
@@ -40,13 +43,37 @@ int main(int argc, char* argv[]) {
       pmwcas::LinuxEnvironment::Destroy);
 #endif
 
-  uint64_t size = sizeof(DescriptorPool::Metadata) +
+  std::string benchmark(FLAGS_benchmarks);
+  uint64_t size = 0;
+  if(benchmark == "mwcas") {
+    size = sizeof(DescriptorPool::Metadata) +
                   sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
-                  sizeof(CasPtr) * FLAGS_array_size;  // data area
-
-  std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
+                  sizeof(CasPtr) * FLAGS_array_size;  // data area     
+    std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
 	  << ", Descriptor:" << sizeof(Descriptor)
 	  << ", CasPtr:" << sizeof(CasPtr) << std::endl;
+  }
+  else {
+    if(FLAGS_FASAS_BASE_TYPE == 0) {
+      size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(CasPtr) * FLAGS_array_size + // share data area
+                    sizeof(CasPtr) * FLAGS_threads;  // private data area
+      std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
+	    << ", Descriptor:" << sizeof(Descriptor)
+	    << ", CasPtr:" << sizeof(CasPtr) << std::endl;
+    }
+    else {
+      size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(FASASCasPtr) * FLAGS_array_size + // share data area
+                    sizeof(FASASCasPtr) * FLAGS_threads;  // private data area
+      std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
+	    << ", FASASDescriptor:" << sizeof(FASASDescriptor)
+	    << ", FASASCasPtr:" << sizeof(FASASCasPtr) << std::endl;
+    }
+  }
+
   SharedMemorySegment* segment = nullptr;
   auto s = Environment::Get()->NewSharedMemorySegment(FLAGS_shm_segment, size,
       false, &segment);

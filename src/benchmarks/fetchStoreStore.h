@@ -5,15 +5,13 @@ namespace pmwcas {
 
 class FetchStoreStore {
 public:
-	FetchStoreStore(DescriptorPool* descriptor_pool)
-		: descriptor_pool_(descriptor_pool) {}
 		
-	void process(CasPtr* targetAddr, CasPtr* storeAddr, 
-	   uint64_t newval);
-
-private:
-
-    DescriptorPool* descriptor_pool_;
+	void processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr, 
+	   uint64_t newval, DescriptorPool* descPool);
+    void process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
+	   uint64_t newval, FASASDescriptorPool* fasasDescPool);
+    void processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
+	   uint64_t newval, FASASDescriptorPool* fasasDescPool);
 
 };
 

@@ -18,11 +18,11 @@ public:
     bool processByMwcas(uint32_t calldepth, uint32_t processPos);
     bool process();
 
-    void setPrivateAdress(uint64_t* privateAddress) {
+    void setPrivateAddress(uint64_t* privateAddress) {
         privateAddress_ = privateAddress;
     }
 
-    uint64_t* getPrivateAdress() {
+    uint64_t* getPrivateAddress() {
         return privateAddress_;
     }
 
@@ -47,7 +47,29 @@ private:
 
 };
 
+class FASASDescriptorPool : public DescriptorPool {
+public:
+  FASASDescriptorPool(
+    uint32_t pool_size,
+    uint32_t partition_count,
+    FASASDescriptor * desc_va,
+    bool enable_stats = false);
 
+  // Get a free descriptor from the pool.
+  FASASDescriptor* AllocateDescriptor(Descriptor::AllocateCallback ac,
+    Descriptor::FreeCallback fc);
+  
+  // Allocate a free descriptor from the pool using default allocate and
+  // free callbacks.
+  inline FASASDescriptor* AllocateDescriptor() {
+    return AllocateDescriptor(nullptr, nullptr);
+  }
+
+private:
+
+  void assigneValue(uint32_t pool_size, uint32_t partition_count, 
+    FASASDescriptor* desc_va, bool enable_stats);
+};
 
 template <typename T>
 class FASASTargetField : public MwcTargetField<T>
@@ -117,6 +139,12 @@ retry:
 
         RAW_CHECK(MwcTargetField<T>::IsCleanPtr(val), "dirty flag set on return value");
         return val;
+    }
+
+      /// Assignment operator
+    FASASTargetField<T>& operator= (T rhval) {
+        MwcTargetField<T>::value_ = rhval;
+        return *this;
     }
 };
 
