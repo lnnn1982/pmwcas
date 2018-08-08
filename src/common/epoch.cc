@@ -14,6 +14,7 @@ EpochManager::EpochManager()
     : current_epoch_{ 1 }
     , safe_to_reclaim_epoch_{ 0 }
     , epoch_table_{ nullptr } {
+    std::cout << "EpochManager construct" << std::endl;
 }
 
 EpochManager::~EpochManager() {
@@ -92,7 +93,11 @@ Status EpochManager::Uninitialize() {
 */
 void EpochManager::BumpCurrentEpoch() {
   Epoch newEpoch = current_epoch_.fetch_add(1, std::memory_order_seq_cst);
+  //std::cout << "EpochManager::BumpCurrentEpoch current_epoch_:" 
+    //<< current_epoch_.load(std::memory_order_seq_cst) << std::endl;
   ComputeNewSafeToReclaimEpoch(newEpoch);
+  //std::cout << "safe_to_reclaim_epoch_: " 
+    //<< safe_to_reclaim_epoch_.load(std::memory_order_seq_cst) << std::endl;
 }
 
 // - private -
@@ -208,8 +213,7 @@ Status EpochManager::MinEpochTable::Uninitialize() {
 *      the library has entered some non-serviceable state.
 */
 Status EpochManager::MinEpochTable::Protect(Epoch current_epoch) {
-  //std::cout << "threadid:" << std::this_thread::get_id() << ", Protect, "
-  	//<< "current epoch:" << current_epoch << std::endl;
+
 
   Entry* entry = nullptr;
   RETURN_NOT_OK(GetEntryForThread(&entry));
@@ -217,6 +221,11 @@ Status EpochManager::MinEpochTable::Protect(Epoch current_epoch) {
   entry->last_unprotected_epoch = 0;
 #if 1
   entry->protected_epoch.store(current_epoch, std::memory_order_release);
+
+  //std::cout << "threadid:" << std::this_thread::get_id() << ", Protect, "
+  	//<< "current epoch:" << current_epoch << ", protected_epoch:"
+  	//<< entry->protected_epoch.load(std::memory_order_seq_cst) << std::endl;
+  	
   // TODO: For this to really make sense according to the spec we
   // need a (relaxed) load on entry->protected_epoch. What we want to
   // ensure is that loads "above" this point in this code don't leak down

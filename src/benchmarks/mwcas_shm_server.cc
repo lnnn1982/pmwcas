@@ -18,7 +18,7 @@ DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
   " descriptors and data (for persistent MwCAS only)");
 DEFINE_uint64(threads, 8, "number of threads to use for multi-threaded tests");
 DEFINE_string(benchmarks, "FASAS", "fetch store and store");
-DEFINE_int32(FASAS_BASE_TYPE, 0, "fetch store store base type ");
+DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 
 using namespace pmwcas;
 

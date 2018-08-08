@@ -237,6 +237,7 @@ Descriptor* DescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
   Descriptor* desc = tls_part->free_list;
   while(!desc) {
     // See if we can scavenge some descriptors from the garbage list
+    //std::cout << "AllocateDescriptor BumpCurrentEpoch" << std::endl;
     tls_part->garbage_list->GetEpoch()->BumpCurrentEpoch();
     tls_part->garbage_list->Scavenge();
     desc = tls_part->free_list;

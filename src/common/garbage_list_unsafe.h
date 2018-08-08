@@ -5,6 +5,7 @@
 
 #include <mutex>
 #include <atomic>
+#include <iostream>
 #include "common/allocator_internal.h"
 #include "common/epoch.h"
 #include "common/garbage_list.h"
@@ -103,7 +104,10 @@ class GarbageListUnsafe : public IGarbageList {
         nItemArraySize, 64));
     if(!items_) return Status::Corruption("Out of memory");
 
-    for(size_t i = 0; i < item_count; ++i) new(&items_[i]) Item{};
+    for(size_t i = 0; i < item_count; ++i) {
+        new(&items_[i]) Item{};
+        items_[i].removal_epoch = 0;
+    }
 
     item_count_ = item_count;
     tail_ = 0;
@@ -181,8 +185,10 @@ class GarbageListUnsafe : public IGarbageList {
 
       // Everytime we work through 25% of the capacity of the list roll
       // the epoch over.
-      if(((slot << 2) & (item_count_ - 1)) == 0)
+      if(((slot << 2) & (item_count_ - 1)) == 0) {
+        //std::cout << "push bump current epoch. slot:" << slot << std::endl;
         epoch_manager_->BumpCurrentEpoch();
+      }
 
       Item& item = items_[slot];
 

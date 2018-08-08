@@ -29,7 +29,7 @@ DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
     " descriptors and data (for persistent MwCAS only)");
 DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
     " operations");
-DEFINE_int32(FASAS_BASE_TYPE, 0, "fetch store store base type ");
+DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 #ifdef PMEM
 DEFINE_uint64(write_delay_ns, 0, "NVRAM write delay (ns)");
 DEFINE_bool(emulate_write_bw, false, "Emulate write bandwidth");
@@ -378,7 +378,7 @@ struct BaseFASASTest : public BaseMwCas {
 		
 	uint64_t n_success = 0;
 	uint64_t newValue = 0;
-    while(!IsShutdown()) {
+    while(!IsShutdown()) {     
 	  if(++epochs == kEpochThreshold) {
 	    descPool->GetEpoch()->Unprotect();
 	    descPool->GetEpoch()->Protect();
@@ -479,9 +479,11 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
       RAW_CHECK((uint64_t)shareArrayPtr_[i] % 4 == 0, "share value not multi of 4");
     }
 
-    LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[0];
-    RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[0]), "private variable Wrong value");
-    RAW_CHECK((uint64_t)privateArrayPtr_[0] % 4 == 0, "share value not multi of 4");
+    for(uint32_t i = 0; i < FLAGS_threads; i++) {
+      LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[i];
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[i]), "private variable Wrong value");
+      RAW_CHECK((uint64_t)privateArrayPtr_[i] % 4 == 0, "private value not multi of 4");
+    }
   }
 
   CasPtr* shareArrayPtr_;
@@ -573,9 +575,11 @@ struct FASASTest : public BaseFASASTest {
       RAW_CHECK((uint64_t)shareArrayPtr_[i] % 4 == 0, "share value not multi of 4");
     }
 
-     LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[0];
-     RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[0]), "private variable Wrong value");
-     RAW_CHECK((uint64_t)privateArrayPtr_[0] % 4 == 0, "share value not multi of 4");
+    for(uint32_t i = 0; i < FLAGS_threads; i++) {
+      LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[i];
+      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[i]), "private variable Wrong value");
+      RAW_CHECK((uint64_t)privateArrayPtr_[i] % 4 == 0, "private value not multi of 4");
+    }
   }
 
 	

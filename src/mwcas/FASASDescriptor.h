@@ -32,7 +32,7 @@ private:
 
     
     uint64_t addDescriptorToShareVar();
-    void persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status);
+    void persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status, uint32_t orgStatus);
     void changeShareValue();
     void persistTargetAddrValue(uint64_t* address);
     void changePrivateValue();

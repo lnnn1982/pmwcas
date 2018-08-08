@@ -74,7 +74,7 @@ retry_entry:
 	    }
     }
 
-    persistTargetFieldsStatus(descptr, my_status);
+    persistTargetFieldsStatus(descptr, my_status, kStatusUndecided);
     changeTargetAddressValue(descptr, calldepth, processPos);
 
     if(calldepth == 0) {
@@ -99,7 +99,7 @@ bool FASASDescriptor::process()
     }
 
     uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
-    persistTargetFieldsStatus(descptr, kStatusSucceeded);
+    persistTargetFieldsStatus(descptr, kStatusSucceeded, kStatusFailed);
 
     changePrivateValue();
     changeShareValue();
@@ -109,7 +109,7 @@ bool FASASDescriptor::process()
 
 void FASASDescriptor::helpProcess() {
     uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
-    persistTargetFieldsStatus(descptr, kStatusSucceeded);
+    persistTargetFieldsStatus(descptr, kStatusSucceeded, kStatusFailed);
     changeShareValue();
 }
 
@@ -131,7 +131,8 @@ retry:
     return  ret;
 }
 
-void FASASDescriptor::persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status)
+void FASASDescriptor::persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status,
+    uint32_t orgStatus)
 {
     // Persist all target fields if we successfully installed mwcas descriptor on
     // all fields.
@@ -148,7 +149,7 @@ void FASASDescriptor::persistTargetFieldsStatus(uint64_t descptr, uint32_t my_st
     }
 
     // Switch to the final state, the MwCAS concludes after this point
-    CompareExchange32(&status_, my_status | kStatusDirtyFlag, kStatusUndecided);
+    CompareExchange32(&status_, my_status | kStatusDirtyFlag, orgStatus);
 
     // Now the MwCAS is concluded - status is either succeeded or failed, and
     // no observers will try to help finish it, so do a blind flush and reset
