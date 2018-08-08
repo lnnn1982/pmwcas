@@ -14,7 +14,6 @@ EpochManager::EpochManager()
     : current_epoch_{ 1 }
     , safe_to_reclaim_epoch_{ 0 }
     , epoch_table_{ nullptr } {
-    std::cout << "EpochManager construct" << std::endl;
 }
 
 EpochManager::~EpochManager() {
