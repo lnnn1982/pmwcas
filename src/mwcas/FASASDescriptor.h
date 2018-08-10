@@ -29,7 +29,7 @@ public:
     void helpProcess();
 
 private:
-
+    friend class FASASDescriptorPool;
     
     uint64_t addDescriptorToShareVar();
     void persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status, uint32_t orgStatus);
@@ -38,9 +38,6 @@ private:
     void changePrivateValue();
     void changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
         uint32_t processPos);
-
-
-
 
 
     uint64_t* privateAddress_;
@@ -69,6 +66,13 @@ private:
 
   void assigneValue(uint32_t pool_size, uint32_t partition_count, 
     FASASDescriptor* desc_va, bool enable_stats);
+  
+    void recover(FASASDescriptor* fasasDesc);
+    void recoverForFASAS(uint32_t status,
+        FASASDescriptor & descriptor, uint64_t& redo_words, uint64_t& undo_words);
+    void recoverForFASASByMwcas(uint32_t status,
+        FASASDescriptor & descriptor, 
+        uint64_t& redo_words, uint64_t& undo_words);
 };
 
 template <typename T>

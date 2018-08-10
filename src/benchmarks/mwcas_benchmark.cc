@@ -434,7 +434,19 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
     initDescriptorPool(segment);
 
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
-      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+      if(Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i])) {
+        std::cout << "share varible is descriptor ptr:" << (uint64_t)shareArrayPtr_[i] << 
+             ", i:" << i << ", addr:" << std::hex << (&(shareArrayPtr_[i])) << std::endl;
+      }
+      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+    }
+
+    for(uint32_t i = 0; i < FLAGS_threads; ++i) {
+      if(Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i])) {
+        std::cout << "private varible is descriptor ptr:" << (uint64_t)privateArrayPtr_[i] << 
+             ", i:" << i << ", addr:" << std::hex << (&(privateArrayPtr_[i])) << std::endl;
+      }
+      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i]), "Wrong value");
     }
 
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
@@ -524,9 +536,21 @@ struct FASASTest : public BaseFASASTest {
     // to be re-initialized, rather this provides us the opportunity to do a
     // sanity check: no field should still point to a descriptor after recovery.
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
-      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+      if(Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i])) {
+        std::cout << "share varible is descriptor ptr:" << std::hex << (uint64_t)shareArrayPtr_[i] << 
+            ", i:" << i << ", addr:" << std::hex << (&(shareArrayPtr_[i])) << std::endl;
+      }
+      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
     }
 
+    for(uint32_t i = 0; i < FLAGS_threads; ++i) {
+      if(Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i])) {
+        std::cout << "private varible is descriptor ptr:" << std::hex << (uint64_t)privateArrayPtr_[i] <<
+            ", i:" << i << ", addr:" << std::hex << (&(privateArrayPtr_[i])) << std::endl;
+      }
+      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i]), "Wrong value");
+    }
+    
     // Now we can start from a clean slate (perhaps not necessary)
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
       shareArrayPtr_[i] = uint64_t(0);

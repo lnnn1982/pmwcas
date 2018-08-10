@@ -138,8 +138,10 @@ DescriptorPool::DescriptorPool(
               word.PersistAddress();
 #endif
               undo_words++;
-              LOG(INFO) << "Applied old value 0x" << std::hex
-                        << word.old_value_ << " at 0x" << word.address_;
+              LOG(INFO) << "Applied old value " << std::hex
+                        << word.old_value_ << " at " << word.address_  << " w:" << w;
+              std::cout << "Applied old value " << std::hex
+                        << word.old_value_ << " at " << word.address_  << " w:" << w << std::endl;
             }
           }
         } else {
@@ -159,8 +161,10 @@ DescriptorPool::DescriptorPool(
               word.PersistAddress();
 #endif
               redo_words++;
-              LOG(INFO) << "Applied new value 0x" << std::hex
-                        << word.new_value_ << " at 0x" << word.address_;
+              LOG(INFO) << "Applied new value " << std::hex
+                        << word.new_value_ << " at " << std::hex << word.address_ << " w:" << w;
+              std::cout << "Applied new value " << std::hex
+                        << word.new_value_ << " at " << std::hex << word.address_ << " w:" << w << std::endl;
             }
           }
         }
@@ -177,9 +181,12 @@ DescriptorPool::DescriptorPool(
         }
       }
 
-      LOG(INFO) << "Found " << in_progress_desc <<
+      std::cout << "recover Found " << in_progress_desc <<
         " in-progress descriptors, rolled forward " << redo_words <<
-        " words, rolled back " << undo_words << " words";
+        " words, rolled back " << undo_words << " words" << std::endl;
+    }
+    else {
+        std::cout << "no need recover" << std::endl;
     }
   } else {
     // No existing pool space provided, create one, but won't support recovery

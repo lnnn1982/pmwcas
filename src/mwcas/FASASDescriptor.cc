@@ -240,8 +240,12 @@ FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_
     initVariable(enable_stats);
 
     FASASDescriptor* fasasDesc = (FASASDescriptor*)(descriptors_);
-
-    //recover
+    if(fasasDesc[0].status_ != Descriptor::kStatusInvalid) {
+        recover(fasasDesc);
+    }
+    else {
+        std::cout << "no need to recover" << std::endl;
+    }
     
     memset(fasasDesc, 0, sizeof(FASASDescriptor) * pool_size_);
 
@@ -260,6 +264,117 @@ FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_
 
         if((i + 1) % desc_per_partition == 0) {
           partition++;
+        }
+    }
+}
+
+void FASASDescriptorPool::recover(FASASDescriptor* fasasDesc) {
+    uint64_t in_progress_desc = 0, redo_words = 0, undo_words = 0;
+    for(uint32_t i = 0; i < pool_size_; ++i) {
+        auto& desc = fasasDesc[i];
+        if(desc.status_ == Descriptor::kStatusInvalid) {
+          // Must be a new pool - comes with everything zeroed but better
+          // find this as we look at the first descriptor.
+            RAW_CHECK(i == 0, "corrupted descriptor pool/data area");
+            break;
+        }
+        desc.assert_valid_status();
+        
+        uint32_t status = desc.status_ & ~Descriptor::kStatusDirtyFlag;
+        if(status == Descriptor::kStatusFinished) {
+            continue;
+        } 
+
+        in_progress_desc++;
+
+        if(desc.count_ == 1) {
+            recoverForFASAS(status, desc, redo_words, undo_words);
+        }
+        else if(desc.count_ == 2) {
+            recoverForFASASByMwcas(status, desc, redo_words, undo_words);
+        }
+    }
+
+    std::cout << "recover Found " << in_progress_desc <<
+        " in-progress descriptors, rolled forward " << redo_words <<
+        " words, rolled back " << undo_words << " words" << std::endl;
+}
+
+void FASASDescriptorPool::recoverForFASAS(uint32_t status,
+    FASASDescriptor & descriptor, uint64_t& redo_words,
+    uint64_t& undo_words) {
+
+    auto& word = descriptor.words_[FASASDescriptor::SHARE_VAR_POS];
+    uint64_t val = Descriptor::CleanPtr(*word.address_);
+    if(status == Descriptor::kStatusSucceeded && val == (uint64_t)&descriptor) {
+        *(descriptor.privateAddress_) = word.old_value_;
+        NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
+
+        LOG(INFO) << "Applied old value " << std::hex << word.old_value_ << " to private address:" 
+            << std::hex << descriptor.privateAddress_;
+        std::cout << "Applied old value " << std::hex << word.old_value_ << " to private address:" 
+            << std::hex << descriptor.privateAddress_ << std::endl;
+
+        *(word.address_) = word.new_value_;
+        NVRAM::Flush(sizeof(uint64_t), (void*)word.address_);
+
+        LOG(INFO) << "Applied new value " << std::hex << word.new_value_ << " to share address:" 
+           << std::hex << word.address_;
+        std::cout << "Applied new value " << std::hex << word.new_value_ << " to share address:" 
+           << std::hex << word.address_ << std::endl;
+
+        redo_words++;
+    }
+    else if(status == Descriptor::kStatusFailed && val == (uint64_t)&descriptor) {
+        *(word.address_) = word.old_value_;
+        NVRAM::Flush(sizeof(uint64_t), (void*)word.address_);
+
+        LOG(INFO) << "Applied old value " << std::hex << word.old_value_ << " to share address:" 
+           << std::hex << word.address_;
+        std::cout << "Applied old value " << std::hex << word.old_value_ << " to share address:" 
+           << std::hex << word.address_ << std::endl;
+
+        undo_words++;
+    }
+}
+
+void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
+    FASASDescriptor & descriptor, 
+    uint64_t& redo_words, uint64_t& undo_words)
+{
+    if(status == Descriptor::kStatusSucceeded) {
+        for(int w = 0; w < descriptor.count_; ++w) {
+            auto& word = descriptor.words_[w];
+            uint64_t val = Descriptor::CleanPtr(*word.address_);
+            if(val == (uint64_t)&descriptor) {
+                *word.address_ = word.new_value_;
+                word.PersistAddress();
+
+                std::cout << "Applied new value " << std::hex << word.new_value_ 
+                    << " at " << std::hex << word.address_ << " w:" << w << std::endl;
+                LOG(INFO) << "Applied new value " << std::hex << word.new_value_ 
+                    << " at " << std::hex << word.address_ << " w:" << w;
+
+                redo_words++;
+            }
+        }
+    }
+    else if(status == Descriptor::kStatusUndecided || 
+        status == Descriptor::kStatusFailed) {
+        for(int w = 0; w < descriptor.count_; ++w) {
+            auto& word = descriptor.words_[w];
+            uint64_t val = Descriptor::CleanPtr(*word.address_);
+            if(val == (uint64_t)&descriptor || val == (uint64_t)&word) {
+                *word.address_ = word.old_value_;
+                word.PersistAddress();
+            
+                std::cout << "Applied old value " << std::hex << word.old_value_ 
+                    << " at " << std::hex << word.address_ << " w:" << w << std::endl;
+                LOG(INFO) << "Applied old value " << std::hex << word.old_value_ 
+                    << " at " << std::hex << word.address_ << " w:" << w;
+
+                undo_words++;
+            }
         }
     }
 }
