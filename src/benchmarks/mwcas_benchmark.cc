@@ -6,6 +6,7 @@
 
 #include "mwcas_benchmark.h"
 #include "fetchStoreStore.h"
+#include "RecoverMutex.h"
 
 #include "util/core_local.h"
 #include "util/random_number_generator.h"
@@ -338,6 +339,8 @@ struct BaseFASASTest : public BaseMwCas {
         sizeof(uint64_t));
     if(base_address) {
       std::cout << "base_address:" << std::hex << base_address << std::endl;
+      isNewMem_ = false;
+    
 	  // An existing pool, with valid descriptors and data
       if(base_address != (uintptr_t)segment->GetMapAddress()) {
         segment->Detach();
@@ -350,6 +353,7 @@ struct BaseFASASTest : public BaseMwCas {
     else {
       // New pool/data area, store this base address, pass it + meatadata_size
       // as desc pool va
+      isNewMem_ = true;
       void* map_address = segment->GetMapAddress();
       DescriptorPool::Metadata *metadata = (DescriptorPool::Metadata*)map_address;
       metadata->descriptor_count = FLAGS_descriptor_pool_size;
@@ -401,6 +405,8 @@ struct BaseFASASTest : public BaseMwCas {
   virtual DescriptorPool* getDescPool() = 0;
   virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
     uint64_t newValue, FetchStoreStore & fetchStoreStore) = 0;
+
+  bool isNewMem_;
     
 };
 
@@ -421,10 +427,10 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
                     sizeof(CasPtr) * FLAGS_threads;  // private data area
     SharedMemorySegment* segment = initSharedMemSegment(segname, size);
 
-    shareArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+    shareArrayPtr_ = (CasPtr*)((uintptr_t)segment->GetMapAddress() +
         sizeof(DescriptorPool::Metadata) +
         sizeof(Descriptor) * FLAGS_descriptor_pool_size);
-    privateArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+    privateArrayPtr_ = (CasPtr*)((uintptr_t)segment->GetMapAddress() +
         sizeof(DescriptorPool::Metadata) +
         sizeof(Descriptor) * FLAGS_descriptor_pool_size +
         sizeof(CasPtr) * FLAGS_array_size);
@@ -614,10 +620,218 @@ struct FASASTest : public BaseFASASTest {
 } ;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
+struct RecoverMutexTestBase : public BaseFASASTest {
 
+  void Main(size_t thread_index) {
+    auto s = MwCASMetrics::ThreadInitialize();
+	RAW_CHECK(s.ok(), "Error initializing thread");
+
+    QNode * node = nodePtr_ + thread_index;
+    if(isNewMem_) {
+        new(node) QNode();
+    }
+    LOG(ERROR) << "thread_index:" << thread_index << ", nodePtr:" << node << ", node prev:" 
+        << node->prev << ", next:"
+        << node->next << ", link:" << node->linked;
+    mutexPtr_->setMyNode(node);
+
+    DescriptorPool* descPool = getDescPool();
+   
+    WaitForStart();
+
+    const uint64_t kEpochThreshold = 50;
+	uint64_t epochs = 0;
+	descPool->GetEpoch()->Protect();
+		
+	uint64_t n_success = 0;
+    while(!IsShutdown()) {     
+	  if(++epochs == kEpochThreshold) {
+	    descPool->GetEpoch()->Unprotect();
+	    descPool->GetEpoch()->Protect();
+	    epochs = 0;
+      }
+
+      mutexPtr_->lock();
+      changeValue_ = thread_index;
+      mutexPtr_->unlock();
+      
+	  n_success += 1;
+    }
+
+    descPool->GetEpoch()->Unprotect();
+		
+	auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
+	LOG(INFO) << "Thread " << thread_index << " n_success: " <<
+	            n_success << ", " << n << ", total_success_:" << total_success_;
+  }
+	
+  void Teardown() {
+    std::cout << "tail:" << mutexPtr_->getTail() << std::endl;
+    std::cout << "changeValue_:" << changeValue_ << std::endl;
+
+    for(uint32_t i = 0; i < FLAGS_threads; i++) {
+        QNode * node = nodePtr_ + i;
+        std::cout << "i:" << i << ", nodePtr:" << node << ", node prev:"
+            << node->prev << ", next:" << node->next << ", link:" << node->linked << std::endl;
+
+        if(node->prev == NULL) {
+            RAW_CHECK((uint32_t)changeValue_ == i, "changeValue_ not right");
+        }
+    }
+  }
+
+  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+          uint64_t newValue, FetchStoreStore & fetchStoreStore) {  
+    throw "not support";
+  }
+
+  RecoverMutex* mutexPtr_; 
+  QNode* nodePtr_;
+  size_t changeValue_;
+  
+} ;
+
+struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
+
+ void Setup(size_t thread_count) {
+    if(FLAGS_clflush) {
+      NVRAM::InitializeClflush();
+    } else {
+      NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
+    }
+
+    std::string segname(FLAGS_shm_segment);
+    uint64_t size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(QNode *) * 1 + // share data area
+                    sizeof(QNode) * FLAGS_threads;  // private data area
+    SharedMemorySegment* segment = initSharedMemSegment(segname, size);
+    initDescriptorPool(segment);
+
+    uint64_t descripSize = sizeof(DescriptorPool::Metadata) + sizeof(Descriptor) * FLAGS_descriptor_pool_size;
+    QNode ** tailPtr = (QNode**)((uintptr_t)segment->GetMapAddress() + descripSize);
+    nodePtr_ = (QNode*)((uintptr_t)segment->GetMapAddress() +
+        descripSize + sizeof(QNode *) * 1);
+	std::cout << "tailPtr:" << tailPtr << ", nodePtr:" << nodePtr_ << std::endl;
+
+    RecoverMutexUsingOrgMwcas * mutexPtr = reinterpret_cast<RecoverMutexUsingOrgMwcas*>(
+      Allocator::Get()->Allocate(sizeof(RecoverMutexUsingOrgMwcas)));
+    new(mutexPtr) RecoverMutexUsingOrgMwcas(descPool_, *tailPtr);
+    mutexPtrGuard_ = make_unique_ptr_t<RecoverMutexUsingOrgMwcas>(mutexPtr);
+    mutexPtr_ = mutexPtr;
+    
+    std::cout << "mutexPtr_:" << mutexPtr_ << ", tail:" << (*tailPtr) << std::endl;
+  }
+  
+  void initDescriptorPool(SharedMemorySegment* segment)
+  {
+    Descriptor * poolDesc = (Descriptor*)((uintptr_t)segment->GetMapAddress() +
+      sizeof(DescriptorPool::Metadata));
+	std::cout << "descriptor addr:" << poolDesc << std::endl;
+
+    // Ideally the descriptor pool is sized to the number of threads in the
+    // benchmark to reduce need for new allocations, etc.
+    descPool_ = reinterpret_cast<DescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(DescriptorPool)));
+    new(descPool_) DescriptorPool(
+      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+  }
+
+  virtual DescriptorPool* getDescPool() {
+    return descPool_;
+  }
+  
+  unique_ptr_t<RecoverMutexUsingOrgMwcas> mutexPtrGuard_;
+  DescriptorPool* descPool_;
+};
+
+struct RecoverNew : public RecoverMutexTestBase {
+
+ void Setup(size_t thread_count) {
+    if(FLAGS_clflush) {
+      NVRAM::InitializeClflush();
+    } else {
+      NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
+    }
+
+    std::string segname(FLAGS_shm_segment);
+    uint64_t size = sizeof(DescriptorPool::Metadata) +
+                    sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    sizeof(QNode *) * 1 + // share data area
+                    sizeof(QNode) * FLAGS_threads;  // private data area
+    SharedMemorySegment* segment = initSharedMemSegment(segname, size);
+    initDescriptorPool(segment);
+
+    uint64_t descripSize = sizeof(DescriptorPool::Metadata) + sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size;
+    QNode ** tailPtr = (QNode**)((uintptr_t)segment->GetMapAddress() + descripSize);
+    nodePtr_ = (QNode*)((uintptr_t)segment->GetMapAddress() +
+        descripSize + sizeof(QNode *) * 1);
+	std::cout << "tailPtr:" << tailPtr << ", nodePtr:" << nodePtr_ << std::endl;
+
+    RecoverMutexNew * mutexPtr = reinterpret_cast<RecoverMutexNew*>(
+      Allocator::Get()->Allocate(sizeof(RecoverMutexNew)));
+    new(mutexPtr) RecoverMutexNew(fasasDescPool_, *tailPtr);
+    mutexPtrGuard_ = make_unique_ptr_t<RecoverMutexNew>(mutexPtr);
+    mutexPtr_ = mutexPtr;
+    
+    std::cout << "mutexPtr_:" << mutexPtr_ << ", tail:" << (*tailPtr) << std::endl;
+  }
+  
+  void initDescriptorPool(SharedMemorySegment* segment)
+  {
+    FASASDescriptor * poolDesc = (FASASDescriptor*)((uintptr_t)segment->GetMapAddress() +
+      sizeof(DescriptorPool::Metadata));
+	std::cout << "descriptor addr:" << poolDesc << std::endl;
+
+    // Ideally the descriptor pool is sized to the number of threads in the
+    // benchmark to reduce need for new allocations, etc.
+    fasasDescPool_ = reinterpret_cast<FASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(FASASDescriptorPool)));
+    new(fasasDescPool_) FASASDescriptorPool(
+      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+  }
+
+  virtual DescriptorPool* getDescPool() {
+    return fasasDescPool_;
+  }
+  
+  unique_ptr_t<RecoverMutexNew> mutexPtrGuard_;
+  FASASDescriptorPool* fasasDescPool_;
+};
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////
 }// namespace pmwcas
 
 using namespace pmwcas;
+
+void doRunRecoverMutex(RecoverMutexTestBase & test) {
+  std::cout << "Starting fetch store benchmark..." << std::endl;
+  test.Run(FLAGS_threads, FLAGS_seconds,
+      static_cast<AffinityPattern>(FLAGS_affinity),
+      FLAGS_metrics_dump_interval);
+
+  printf("multiple cas: opCnt:%.0f, sec:%.3f,  %.2f ops/sec\n", (double)test.GetOperationCount(), 
+  	  test.GetRunSeconds(),
+      (double)test.GetOperationCount() / test.GetRunSeconds());
+  printf("lock and unlock: totalSuc:%.0f, sec:%.3f, %.2f successful ops/sec\n",
+  	(double)test.GetTotalSuccess(),
+  	 test.GetRunSeconds(),
+     (double)test.GetTotalSuccess() / test.GetRunSeconds());
+}
+
+Status runRecoverMutexTest() {
+  if(FLAGS_FASAS_BASE_TYPE == 0) {
+    RecoverByOrgPMwCas test;
+    doRunRecoverMutex(test);
+  }
+  else {
+    RecoverNew test;
+    doRunRecoverMutex(test);
+  }
+  
+  return Status::OK();
+}
 
 void doRunFetchStoreAndStore(BaseMwCas & test) {
   std::cout << "Starting fetch store benchmark..." << std::endl;
@@ -675,6 +889,9 @@ void RunBenchmark() {
     } 
 	else if("FASAS" == benchmark_name) {
         s = runFetchStoreAndStore();
+	}
+    else if("RME" == benchmark_name) {
+        s = runRecoverMutexTest();
 	}
 	else {
       fprintf(stderr, "unknown benchmark name: %s\n", benchmark_name.c_str());

@@ -32,6 +32,23 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 	}
 }
 
+
+bool FetchStoreStore::dcasByOrgMwcas(CasPtr* targetAddr1, CasPtr* targetAddr2,
+        uint64_t oldVal1, uint64_t oldVal2, 
+        uint64_t newVal1, uint64_t newVal2, 
+       DescriptorPool* descPool)
+{
+    Descriptor* descriptor = descPool->AllocateDescriptor();
+    CHECK_NOTNULL(descriptor);
+		
+	descriptor->AddEntry((uint64_t*)(targetAddr1), oldVal1,
+			newVal1);
+	descriptor->AddEntry((uint64_t*)(targetAddr2), oldVal2,
+			newVal2);
+
+    return descriptor->MwCAS();
+}
+
 void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
@@ -80,7 +97,21 @@ void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* store
 
 }   
 
+bool FetchStoreStore::dcasByMwcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
+   uint64_t oldVal1, uint64_t oldVal2, 
+   uint64_t newVal1, uint64_t newVal2,
+   FASASDescriptorPool* fasasDescPool)
+{
+    FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
+	CHECK_NOTNULL(descriptor);
+		
+	descriptor->addEntryByPos((uint64_t*)(targetAddr1), oldVal1,
+			newVal1, FASASDescriptor::SHARE_VAR_POS);
+	descriptor->addEntryByPos((uint64_t*)(targetAddr2), oldVal2,
+			newVal2, FASASDescriptor::STORE_VAR_POS);
 
+    return descriptor->processByMwcas(0, FASASDescriptor::INVALID_VAR_POS);
+}   
 
 
 
