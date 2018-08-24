@@ -83,16 +83,20 @@ DescriptorPool::DescriptorPool(
       partition_table_(nullptr),
       next_partition_(0) 
 {
+  //std::cout << "DescriptorPool pool_size:" << std::dec << pool_size << ", desc_va:" 
+        //<< std::hex << desc_va << std::endl;
   initVariable(enable_stats);
   
   //std::cout << "descriptors_:" << (uintptr_t)descriptors_ << std::endl;
 
   if(descriptors_) {
     Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
+    //std::cout << "DescriptorPool metadata:" << std::hex << metadata << std::endl;
     RAW_CHECK((uint64_t)metadata->initial_address == (uint64_t)metadata,
               "invalid initial address");
     RAW_CHECK(metadata->descriptor_count == pool_size_,
               "wrong descriptor pool size");
+    //std::cout << "DescriptorPool after check address and pool size" << std::endl;
 
 	//uintptr_t descriptor0 = *(uintptr_t*)(descriptors_);
     //std::cout << "descriptors_[0]:" << descriptor0 << std::endl;
@@ -101,7 +105,6 @@ DescriptorPool::DescriptorPool(
     // If it is an existing pool, see if it has anything in it
     uint64_t in_progress_desc = 0, redo_words = 0, undo_words = 0;
     if(descriptors_[0].status_ != Descriptor::kStatusInvalid) {
-
       // Must not be a new pool which comes with everything zeroed
       for(uint32_t i = 0; i < pool_size_; ++i) {
         auto& desc = descriptors_[i];
@@ -168,6 +171,8 @@ DescriptorPool::DescriptorPool(
             }
           }
         }
+
+        
 
         for(int w = 0; w < desc.count_; ++w) {
           int64_t val = *desc.words_[w].address_;

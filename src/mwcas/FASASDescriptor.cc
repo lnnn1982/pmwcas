@@ -227,15 +227,20 @@ void FASASDescriptorPool::assigneValue(uint32_t pool_size, uint32_t partition_co
 
 FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_count, 
     FASASDescriptor* desc_va, bool enable_stats)
-{
+{ 
+    //std::cout << "FASASDescriptorPool pool_size:" << std::dec << pool_size << ", desc_va:" 
+        //<< std::hex << desc_va << std::endl;
     assigneValue(pool_size, partition_count, desc_va, enable_stats);
 
     RAW_CHECK(descriptors_, "null descriptor pool");
     Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
+    //std::cout << "FASASDescriptorPool metadata:" << std::hex << metadata << std::endl;
     RAW_CHECK((uint64_t)metadata->initial_address == (uint64_t)metadata,
               "invalid initial address");
     RAW_CHECK(metadata->descriptor_count == pool_size_,
               "wrong descriptor pool size");
+
+    //std::cout << "FASASDescriptorPool after check address and pool size" << std::endl;
 
     initVariable(enable_stats);
 

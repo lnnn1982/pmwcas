@@ -9,14 +9,14 @@ namespace pmwcas {
 struct QNode {
     QNode * prev;
     QNode * next;
-    bool linked;
+    uint64_t linked;
 
-    QNode() : prev(this), next(NULL), linked(false) {}
+    QNode() : prev(this), next(NULL), linked(0) {}
 };
 
 class RecoverMutex {
 public:
-    RecoverMutex(QNode * tail) : tail_(tail) {}
+    RecoverMutex(QNode ** tailPtr) : tailPtr_(tailPtr) {}
     void lock();
     void unlock();
 
@@ -24,8 +24,8 @@ public:
         myNode_ = myNode;
     }
 
-    QNode * getTail() {
-        return tail_;
+    QNode ** getTail() {
+        return tailPtr_;
     }
 
     virtual void FASAS(uint64_t * targetNodeAddr, uint64_t * storeNodeAddr,
@@ -34,14 +34,14 @@ public:
         uint64_t oldValue2, uint64_t newValue1, uint64_t newValue2) = 0;
 
 protected:
-    QNode * tail_;
+    QNode ** tailPtr_;
     static thread_local QNode * myNode_;
     static FetchStoreStore exec_;
 };
 
 class RecoverMutexUsingOrgMwcas : public RecoverMutex {
 public:
-    RecoverMutexUsingOrgMwcas(DescriptorPool* descPool, QNode * tail) : RecoverMutex(tail),
+    RecoverMutexUsingOrgMwcas(DescriptorPool* descPool, QNode ** tailPtr) : RecoverMutex(tailPtr),
         descPool_(descPool) {}
 
     virtual void FASAS(uint64_t * targetNodeAddr, uint64_t * storeNodeAddr,
@@ -56,7 +56,7 @@ private:
 
 class RecoverMutexNew : public RecoverMutex {
 public:
-    RecoverMutexNew(FASASDescriptorPool* fasasDescPool, QNode * tail) : RecoverMutex(tail),  
+    RecoverMutexNew(FASASDescriptorPool* fasasDescPool, QNode ** tailPtr) : RecoverMutex(tailPtr),  
         fasasDescPool_(fasasDescPool) {}
 
     virtual void FASAS(uint64_t * targetNodeAddr, uint64_t * storeNodeAddr,

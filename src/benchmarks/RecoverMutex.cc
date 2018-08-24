@@ -9,20 +9,20 @@ void RecoverMutex::lock() {
     QNode * prev = myNode_->prev;
     if(prev == myNode_) {
         myNode_->next = NULL;
-        myNode_->linked = false;
-        FASAS((uint64_t *)(&tail_), (uint64_t *)(&(myNode_->prev)), (uint64_t)(myNode_));
+        myNode_->linked = 0;
+        FASAS((uint64_t *)(tailPtr_), (uint64_t *)(&(myNode_->prev)), (uint64_t)(myNode_));
         prev = myNode_->prev;
     }
 
     if(prev != NULL) {
         DCAS((uint64_t *)(&prev->next), (uint64_t *)(&myNode_->linked), (uint64_t)NULL, 
-            (uint64_t)(false), (uint64_t)myNode_, (uint64_t)(true));
+            (uint64_t)(0), (uint64_t)myNode_, (uint64_t)(1));
         while(myNode_->prev != NULL);
     }
 }
 
 void RecoverMutex::unlock() {
-    if (!DCAS((uint64_t *)(&tail_), (uint64_t *)(&myNode_->prev), 
+    if (!DCAS((uint64_t *)(tailPtr_), (uint64_t *)(&myNode_->prev), 
         (uint64_t)myNode_, (uint64_t)NULL, (uint64_t)NULL, (uint64_t)myNode_))
     {
         while(myNode_->next == NULL);
