@@ -14,7 +14,9 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 	
     while(1) {
 		uint64_t targetValue = targetAddr->GetValueProtected();
+        RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
 		uint64_t storeValue = storeAddr->GetValueProtected();
+        RAW_CHECK(Descriptor::IsCleanPtr(storeValue), "storeValue not valid");
 		
 		Descriptor* descriptor = descPool->AllocateDescriptor();
 		CHECK_NOTNULL(descriptor);
@@ -27,6 +29,13 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 		if(descriptor->MwCAS()) {
             RAW_CHECK(targetValue == storeAddr->GetValueProtected(),
                 "old share value not equal to private value");
+            /*uint64_t storeValue = (*storeAddr);
+            if(!Descriptor::IsCleanPtr(storeValue)) {
+                
+                std::cout << "storeValue value: " << storeValue << ", target value:" << targetValue << std::endl;
+                RAW_CHECK(false, "11111111111111111");
+            }*/
+
 			break;
 		}
 	}
@@ -54,6 +63,7 @@ void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr,
 {
     while(1) {
 		uint64_t targetValue = shareAddr->getValueProtectedOfSharedVar();
+        RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
 		
 		FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
 		CHECK_NOTNULL(descriptor);
@@ -76,8 +86,10 @@ void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* store
     while(1) {
 		uint64_t targetValue = targetAddr->getValueProtectedForMwcas(
             FASASDescriptor::SHARE_VAR_POS);
+        RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
 		uint64_t storeValue = storeAddr->getValueProtectedForMwcas(
             FASASDescriptor::STORE_VAR_POS);
+        RAW_CHECK(Descriptor::IsCleanPtr(storeValue), "storeValue not valid");
 		
 		FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
 		CHECK_NOTNULL(descriptor);

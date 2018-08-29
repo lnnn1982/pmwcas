@@ -17,11 +17,15 @@ struct QNode {
 class RecoverMutex {
 public:
     RecoverMutex(QNode ** tailPtr) : tailPtr_(tailPtr) {}
-    void lock();
-    void unlock();
+    virtual void lock();
+    virtual void unlock() = 0;
 
     void setMyNode(QNode * myNode) {
         myNode_ = myNode;
+    }
+
+    QNode * getMyNode() {
+        return myNode_;
     }
 
     QNode ** getTail() {
@@ -43,7 +47,7 @@ class RecoverMutexUsingOrgMwcas : public RecoverMutex {
 public:
     RecoverMutexUsingOrgMwcas(DescriptorPool* descPool, QNode ** tailPtr) : RecoverMutex(tailPtr),
         descPool_(descPool) {}
-
+    virtual void unlock();
     virtual void FASAS(uint64_t * targetNodeAddr, uint64_t * storeNodeAddr,
         uint64_t value);
     virtual bool DCAS(uint64_t * wordAddr1, uint64_t * wordAddr2, uint64_t oldValue1,
@@ -58,7 +62,7 @@ class RecoverMutexNew : public RecoverMutex {
 public:
     RecoverMutexNew(FASASDescriptorPool* fasasDescPool, QNode ** tailPtr) : RecoverMutex(tailPtr),  
         fasasDescPool_(fasasDescPool) {}
-
+    virtual void unlock();
     virtual void FASAS(uint64_t * targetNodeAddr, uint64_t * storeNodeAddr,
         uint64_t value);
     virtual bool DCAS(uint64_t * wordAddr1, uint64_t * wordAddr2, uint64_t oldValue1,

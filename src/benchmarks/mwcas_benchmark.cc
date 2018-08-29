@@ -627,6 +627,11 @@ struct FASASTest : public BaseFASASTest {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 struct RecoverMutexTestBase : public BaseFASASTest {
+  void setInitialValue() {
+    initialValue_ = 7;
+    changeValue_ = initialValue_;
+    std::cout << "initialValue_:" << initialValue_ << std::endl;
+  }
 
   void Main(size_t thread_index) {
     auto s = MwCASMetrics::ThreadInitialize();
@@ -640,6 +645,7 @@ struct RecoverMutexTestBase : public BaseFASASTest {
         << node->prev << ", next:"
         << node->next << ", link:" << node->linked;
     mutexPtr_->setMyNode(node);
+    LOG(ERROR) << "myNode:" << mutexPtr_->getMyNode() << ", thread_index:" << thread_index;
 
     DescriptorPool* descPool = getDescPool();
    
@@ -647,6 +653,7 @@ struct RecoverMutexTestBase : public BaseFASASTest {
 
     const uint64_t kEpochThreshold = 50;
 	uint64_t epochs = 0;
+    uint64_t traceFlg = 0;
 	descPool->GetEpoch()->Protect();
 		
 	uint64_t n_success = 0;
@@ -657,8 +664,14 @@ struct RecoverMutexTestBase : public BaseFASASTest {
 	    epochs = 0;
       }
 
+     //if(traceFlg++ == kEpochThreshold*5000) {
+	    //LOG(ERROR) << "myNode:" << mutexPtr_->getMyNode() << ", thread_index:" << thread_index;;
+        //traceFlg = 0;
+      //}
+
       mutexPtr_->lock();
-      changeValue_ = thread_index;
+      changeValue_++;
+      changeValue_--;
       mutexPtr_->unlock();
       
 	  n_success += 1;
@@ -679,11 +692,9 @@ struct RecoverMutexTestBase : public BaseFASASTest {
         QNode * node = nodePtr_ + i;
         std::cout << "i:" << i << ", nodePtr:" << node << ", node prev:"
             << node->prev << ", next:" << node->next << ", link:" << node->linked << std::endl;
-
-        //if(node->prev == NULL) {
-            //RAW_CHECK((uint32_t)changeValue_ == i, "changeValue_ not right");
-        //}
     }
+
+    RAW_CHECK(changeValue_ == initialValue_, "changeValue_ not right");
   }
 
   virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
@@ -694,6 +705,7 @@ struct RecoverMutexTestBase : public BaseFASASTest {
   RecoverMutex* mutexPtr_; 
   QNode* nodePtr_;
   size_t changeValue_;
+  size_t initialValue_;
   
 } ;
 
@@ -738,6 +750,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
     mutexPtrGuard_ = make_unique_ptr_t<RecoverMutexUsingOrgMwcas>(mutexPtr);
     mutexPtr_ = mutexPtr;
     std::cout << "mutexPtr_:" << mutexPtr_ << std::endl;
+    setInitialValue();
   }
   
   void initDescriptorPool(SharedMemorySegment* segment)
@@ -795,6 +808,7 @@ struct RecoverNew : public RecoverMutexTestBase {
     mutexPtrGuard_ = make_unique_ptr_t<RecoverMutexNew>(mutexPtr);
     mutexPtr_ = mutexPtr;
     std::cout << "mutexPtr_:" << mutexPtr_ << std::endl;
+    setInitialValue();
   }
   
   void initDescriptorPool(SharedMemorySegment* segment)
