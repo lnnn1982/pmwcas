@@ -4,6 +4,7 @@ using namespace pmwcas::benchmark;
 
 namespace pmwcas {
 
+thread_local uint64_t FetchStoreStore::epochs_ = 0;
 
 void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr, 
 	   uint64_t newval, DescriptorPool* descPool)
@@ -13,6 +14,8 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 	}*/
 	
     while(1) {
+        epochProtect(descPool);
+        
 		uint64_t targetValue = targetAddr->GetValueProtected();
         RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
 		uint64_t storeValue = storeAddr->GetValueProtected();
@@ -45,8 +48,10 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 bool FetchStoreStore::dcasByOrgMwcas(CasPtr* targetAddr1, CasPtr* targetAddr2,
         uint64_t oldVal1, uint64_t oldVal2, 
         uint64_t newVal1, uint64_t newVal2, 
-       DescriptorPool* descPool)
+        DescriptorPool* descPool)
 {
+    epochProtect(descPool);
+        
     Descriptor* descriptor = descPool->AllocateDescriptor();
     CHECK_NOTNULL(descriptor);
 		
@@ -62,6 +67,8 @@ void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr,
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
     while(1) {
+        epochProtect(fasasDescPool);
+                
 		uint64_t targetValue = shareAddr->getValueProtectedOfSharedVar();
         RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
 		
@@ -84,6 +91,8 @@ void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* store
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
     while(1) {
+        epochProtect(fasasDescPool);
+                
 		uint64_t targetValue = targetAddr->getValueProtectedForMwcas(
             FASASDescriptor::SHARE_VAR_POS);
         RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
@@ -114,6 +123,8 @@ bool FetchStoreStore::dcasByMwcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetA
    uint64_t newVal1, uint64_t newVal2,
    FASASDescriptorPool* fasasDescPool)
 {
+    epochProtect(fasasDescPool);
+    
     FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
 	CHECK_NOTNULL(descriptor);
 		
@@ -123,7 +134,15 @@ bool FetchStoreStore::dcasByMwcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetA
 			newVal2, FASASDescriptor::STORE_VAR_POS);
 
     return descriptor->processByMwcas(0, FASASDescriptor::INVALID_VAR_POS);
-}   
+}
+
+void FetchStoreStore::epochProtect(DescriptorPool* descPool) {
+    if(++epochs_ == kEpochThreshold_) {
+        descPool->GetEpoch()->Unprotect();
+        descPool->GetEpoch()->Protect();
+        epochs_ = 0;
+    }
+}
 
 
 

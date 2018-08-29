@@ -348,6 +348,8 @@ struct BaseFASASTest : public BaseMwCas {
         if(!s.ok()) {
           LOG(FATAL) << "Cannot attach to the segment with given base address";
         }
+
+        RAW_CHECK((uintptr_t)segment->GetMapAddress() == base_address, "base address and map address not match");
       }
     } 
     else {
@@ -389,11 +391,11 @@ struct BaseFASASTest : public BaseMwCas {
 	uint64_t n_success = 0;
 	uint64_t newValue = 0;
     while(!IsShutdown()) {     
-	  if(++epochs == kEpochThreshold) {
+	  /*if(++epochs == kEpochThreshold) {
 	    descPool->GetEpoch()->Unprotect();
 	    descPool->GetEpoch()->Protect();
 	    epochs = 0;
-      }
+      }*/
 
       uint64_t targetIdx = rng.Generate(FLAGS_array_size);
       doFASAS(targetIdx, thread_index, newValue, fetchStoreStore);
@@ -653,16 +655,16 @@ struct RecoverMutexTestBase : public BaseFASASTest {
 
     const uint64_t kEpochThreshold = 50;
 	uint64_t epochs = 0;
-    uint64_t traceFlg = 0;
+    //uint64_t traceFlg = 0;
 	descPool->GetEpoch()->Protect();
 		
 	uint64_t n_success = 0;
     while(!IsShutdown()) {     
-	  if(++epochs == kEpochThreshold) {
+	  /*if(++epochs == kEpochThreshold) {
 	    descPool->GetEpoch()->Unprotect();
 	    descPool->GetEpoch()->Protect();
 	    epochs = 0;
-      }
+      }*/
 
      //if(traceFlg++ == kEpochThreshold*5000) {
 	    //LOG(ERROR) << "myNode:" << mutexPtr_->getMyNode() << ", thread_index:" << thread_index;;

@@ -23,6 +23,12 @@ public:
 	   uint64_t oldVal1, uint64_t oldVal2, 
 	   uint64_t newVal1, uint64_t newVal2, FASASDescriptorPool* fasasDescPool);    
 
+
+private:
+    void epochProtect(DescriptorPool* descPool);
+        
+    static thread_local uint64_t epochs_;
+    const uint64_t kEpochThreshold_ = 100;
 };
 
 
