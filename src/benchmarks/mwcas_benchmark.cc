@@ -802,6 +802,14 @@ struct RecoverNew : public RecoverMutexTestBase {
     nodePtr_ = (QNode*)((uintptr_t)segment->GetMapAddress() +
         metaSize + fasasDescriptorSize + qnodePtrSize );
 	std::cout << "tailPtr:" << tailPtr << ", tail:" << (*tailPtr) << ", nodePtr:" << nodePtr_ << std::endl;
+    for(uint32_t i = 0; i < FLAGS_threads; i++) {
+        QNode * node = nodePtr_ + i;
+        std::cout << "i:" << i << ", nodePtr:" << node << ", node prevPtr:"<< (&node->prev)
+            << ", node prev:" << node->prev << ", node nextPtr:"<< (&node->next)
+            << ", next:" << node->next << ", linkPtr:" << (&node->linked)
+            << ", link:" << node->linked << std::endl;
+    }
+
     initDescriptorPool(segment);
 
     RecoverMutexNew * mutexPtr = reinterpret_cast<RecoverMutexNew*>(

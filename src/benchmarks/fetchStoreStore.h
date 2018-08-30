@@ -19,7 +19,8 @@ public:
     
     void processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool);
-    bool dcasByMwcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
+
+    bool dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
 	   uint64_t oldVal1, uint64_t oldVal2, 
 	   uint64_t newVal1, uint64_t newVal2, FASASDescriptorPool* fasasDescPool);    
 

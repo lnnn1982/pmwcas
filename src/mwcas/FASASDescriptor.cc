@@ -95,6 +95,7 @@ bool FASASDescriptor::process()
 
     WordDescriptor* shareWd = &words_[SHARE_VAR_POS];
     if(addDescriptorToShareVar() != shareWd->old_value_) {
+        privateAddress_ = nullptr;
         return Cleanup();
     }
 
@@ -104,6 +105,7 @@ bool FASASDescriptor::process()
     changePrivateValue();
     changeShareValue();
 
+    privateAddress_ = nullptr;
     return Cleanup();
 }
 
@@ -186,9 +188,16 @@ void FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
 }
 
 void FASASDescriptor::changePrivateValue() {
-    WordDescriptor* wd = &words_[SHARE_VAR_POS];
-    *privateAddress_ = wd->old_value_|kDirtyFlag;
-    persistTargetAddrValue(privateAddress_);
+    if(count_ > 1) {
+        WordDescriptor* wd = &words_[STORE_VAR_POS];
+	    *(wd->address_) = wd->new_value_|kDirtyFlag;
+        persistTargetAddrValue(wd->address_);
+    }
+    else {
+        WordDescriptor* wd = &words_[SHARE_VAR_POS];
+        *privateAddress_ = wd->old_value_|kDirtyFlag;
+        persistTargetAddrValue(privateAddress_);
+    }
 }
 
 void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 

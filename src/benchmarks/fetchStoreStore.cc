@@ -44,7 +44,6 @@ void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr,
 	}
 }
 
-
 bool FetchStoreStore::dcasByOrgMwcas(CasPtr* targetAddr1, CasPtr* targetAddr2,
         uint64_t oldVal1, uint64_t oldVal2, 
         uint64_t newVal1, uint64_t newVal2, 
@@ -87,6 +86,24 @@ void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr,
 	}
 }
 
+bool FetchStoreStore::dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
+   uint64_t oldVal1, uint64_t oldVal2, 
+   uint64_t newVal1, uint64_t newVal2,
+   FASASDescriptorPool* fasasDescPool)
+{
+    epochProtect(fasasDescPool);
+    
+    FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
+	CHECK_NOTNULL(descriptor);
+		
+	descriptor->addEntryByPos((uint64_t*)(targetAddr1), oldVal1,
+			newVal1, FASASDescriptor::SHARE_VAR_POS);
+	descriptor->addEntryByPos((uint64_t*)(targetAddr2), oldVal2,
+			newVal2, FASASDescriptor::STORE_VAR_POS);
+
+    return descriptor->process();
+}
+
 void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
@@ -117,24 +134,6 @@ void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* store
 	}
 
 }   
-
-bool FetchStoreStore::dcasByMwcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
-   uint64_t oldVal1, uint64_t oldVal2, 
-   uint64_t newVal1, uint64_t newVal2,
-   FASASDescriptorPool* fasasDescPool)
-{
-    epochProtect(fasasDescPool);
-    
-    FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
-	CHECK_NOTNULL(descriptor);
-		
-	descriptor->addEntryByPos((uint64_t*)(targetAddr1), oldVal1,
-			newVal1, FASASDescriptor::SHARE_VAR_POS);
-	descriptor->addEntryByPos((uint64_t*)(targetAddr2), oldVal2,
-			newVal2, FASASDescriptor::STORE_VAR_POS);
-
-    return descriptor->processByMwcas(0, FASASDescriptor::INVALID_VAR_POS);
-}
 
 void FetchStoreStore::epochProtect(DescriptorPool* descPool) {
     if(++epochs_ == kEpochThreshold_) {
