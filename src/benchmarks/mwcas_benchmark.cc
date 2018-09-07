@@ -3,6 +3,7 @@
 
 #define NOMINMAX
 #include <string>
+#include <unordered_map>
 
 #include "mwcas_benchmark.h"
 #include "fetchStoreStore.h"
@@ -125,12 +126,19 @@ struct BaseMwCas : public Benchmark {
     double interval_seconds = (double)interval_ticks / ticks_per_second;
     std::cout << "> Benchmark " << dump_id << " IntervalSeconds " <<
       interval_seconds << std::endl;
+
+    for(const auto & idOpNum : threadIdOpNumMap_) {
+        std::cout << "threadId:" << idOpNum.first << ", opNum:" << idOpNum.second << std::endl;
+    }
+
+      
   }
 
 
   uint64_t previous_dump_run_ticks_;
   MwCASMetrics cumulative_stats_;
   std::atomic<uint64_t> total_success_;
+  std::unordered_map<size_t, uint64_t> threadIdOpNumMap_;
 };
 
 
@@ -633,6 +641,20 @@ struct RecoverMutexTestBase : public BaseFASASTest {
     initialValue_ = 7;
     changeValue_ = initialValue_;
     std::cout << "initialValue_:" << initialValue_ << std::endl;
+
+    for(int i = 0; i < FLAGS_threads; i++) {
+        threadIdOpNumMap_[i] = 0;
+    }
+  }
+
+  void printNode() {
+    for(uint32_t i = 0; i < FLAGS_threads; i++) {
+        QNode * node = nodePtr_ + i;
+        std::cout << "i:" << i << ", nodePtr:" << node << ", node prevPtr:"<< (&node->prev)
+            << ", node prev:" << node->prev << ", node nextPtr:"<< (&node->next)
+            << ", next:" << node->next << ", linkPtr:" << (&node->linked)
+            << ", link:" << node->linked << std::endl;
+    }
   }
 
   void Main(size_t thread_index) {
@@ -647,7 +669,7 @@ struct RecoverMutexTestBase : public BaseFASASTest {
         << node->prev << ", next:"
         << node->next << ", link:" << node->linked;
     mutexPtr_->setMyNode(node);
-    LOG(ERROR) << "myNode:" << mutexPtr_->getMyNode() << ", thread_index:" << thread_index;
+    //LOG(ERROR) << "myNode:" << mutexPtr_->getMyNode() << ", thread_index:" << thread_index;
 
     DescriptorPool* descPool = getDescPool();
    
@@ -658,7 +680,7 @@ struct RecoverMutexTestBase : public BaseFASASTest {
     //uint64_t traceFlg = 0;
 	descPool->GetEpoch()->Protect();
 		
-	uint64_t n_success = 0;
+	//uint64_t n_success = 0;
     while(!IsShutdown()) {     
 	  /*if(++epochs == kEpochThreshold) {
 	    descPool->GetEpoch()->Unprotect();
@@ -676,25 +698,22 @@ struct RecoverMutexTestBase : public BaseFASASTest {
       changeValue_--;
       mutexPtr_->unlock();
       
-	  n_success += 1;
+	  //n_success += 1;
+      (threadIdOpNumMap_[thread_index]) += 1;
     }
 
     descPool->GetEpoch()->Unprotect();
 		
-	auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
+	auto n = total_success_.fetch_add(threadIdOpNumMap_[thread_index], std::memory_order_seq_cst);
 	LOG(INFO) << "Thread " << thread_index << " n_success: " <<
-	            n_success << ", " << n << ", total_success_:" << total_success_;
+	            threadIdOpNumMap_[thread_index] << ", " << n << ", total_success_:" << total_success_;
   }
 	
-  void Teardown() {
+  void Teardown() {      
     std::cout << "tail:" << *(mutexPtr_->getTail()) << std::endl;
     std::cout << "changeValue_:" << changeValue_ << std::endl;
 
-    for(uint32_t i = 0; i < FLAGS_threads; i++) {
-        QNode * node = nodePtr_ + i;
-        std::cout << "i:" << i << ", nodePtr:" << node << ", node prev:"
-            << node->prev << ", next:" << node->next << ", link:" << node->linked << std::endl;
-    }
+    printNode();
 
     RAW_CHECK(changeValue_ == initialValue_, "changeValue_ not right");
   }
@@ -736,13 +755,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
     nodePtr_ = (QNode*)((uintptr_t)segment->GetMapAddress() +
         metaSize + descriptorSize + qnodePtrSize );
 	std::cout << "tailPtr:" << tailPtr << ", tail:" << (*tailPtr) << ", nodePtr:" << nodePtr_ << std::endl;
-    for(uint32_t i = 0; i < FLAGS_threads; i++) {
-        QNode * node = nodePtr_ + i;
-        std::cout << "i:" << i << ", nodePtr:" << node << ", node prevPtr:"<< (&node->prev)
-            << ", node prev:" << node->prev << ", node nextPtr:"<< (&node->next)
-            << ", next:" << node->next << ", linkPtr:" << (&node->linked)
-            << ", link:" << node->linked << std::endl;
-    }
+    printNode();
 
     initDescriptorPool(segment);
 
@@ -802,13 +815,7 @@ struct RecoverNew : public RecoverMutexTestBase {
     nodePtr_ = (QNode*)((uintptr_t)segment->GetMapAddress() +
         metaSize + fasasDescriptorSize + qnodePtrSize );
 	std::cout << "tailPtr:" << tailPtr << ", tail:" << (*tailPtr) << ", nodePtr:" << nodePtr_ << std::endl;
-    for(uint32_t i = 0; i < FLAGS_threads; i++) {
-        QNode * node = nodePtr_ + i;
-        std::cout << "i:" << i << ", nodePtr:" << node << ", node prevPtr:"<< (&node->prev)
-            << ", node prev:" << node->prev << ", node nextPtr:"<< (&node->next)
-            << ", next:" << node->next << ", linkPtr:" << (&node->linked)
-            << ", link:" << node->linked << std::endl;
-    }
+    printNode();
 
     initDescriptorPool(segment);
 
