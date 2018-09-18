@@ -2,6 +2,8 @@
 
 #include "mwcas/mwcas.h"
 
+#define FETCH_WAIT
+
 namespace pmwcas {
 
 class alignas(kCacheLineSize) FASASDescriptor : public Descriptor {
@@ -119,10 +121,12 @@ retry:
         uint64_t val = (uint64_t)MwcTargetField<T>::value_;
 
         if(val & MwcTargetField<T>::kMwCASFlag) {
+#ifndef FETCH_WAIT
             // While the address contains a descriptor, help along completing the CAS
             FASASDescriptor* desc = (FASASDescriptor*)Descriptor::CleanPtr(val);
             RAW_CHECK(desc, "invalid descriptor pointer");
             desc->helpProcess();
+#endif
             goto retry;
         }
 

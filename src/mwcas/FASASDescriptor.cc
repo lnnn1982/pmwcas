@@ -122,14 +122,15 @@ uint64_t FASASDescriptor::addDescriptorToShareVar()
 
 retry:
     uint64_t ret = CompareExchange64(wd->address_, descptr, wd->old_value_);
-    
     if(IsMwCASDescriptorPtr(ret)) {
+#ifndef FETCH_WAIT
         FASASDescriptor* otherMWCAS = (FASASDescriptor*)CleanPtr(ret);
         otherMWCAS->helpProcess();
         MwCASMetrics::AddHelpAttempt();
+#endif
         goto retry;
     }
-    
+
     return  ret;
 }
 

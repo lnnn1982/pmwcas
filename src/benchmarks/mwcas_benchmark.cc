@@ -644,6 +644,10 @@ struct RecoverMutexTestBase : public BaseFASASTest {
       NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
     }
 
+#ifdef FETCH_WAIT
+    std::cout << "using fetch wait" << std::endl;
+#endif
+
     uint64_t metaSize = sizeof(DescriptorPool::Metadata);
     uint64_t descriptorSize = getDescriptorSizeSize();
     uint64_t qnodePtrSize = sizeof(QNode *) * FLAGS_array_size;
