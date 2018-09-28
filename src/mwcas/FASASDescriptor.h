@@ -2,7 +2,7 @@
 
 #include "mwcas/mwcas.h"
 
-#define FETCH_WAIT
+//#define FETCH_WAIT
 
 namespace pmwcas {
 

@@ -49,7 +49,7 @@ bool RecoverMutexUsingOrgMwcas::DCAS(uint64_t * wordAddr1, uint64_t * wordAddr2,
 }
 
 void RecoverMutexNew::lock() {
-    QNode * prev = myNode_->prev;
+    volatile QNode * prev = myNode_->prev;
     if(prev == myNode_) {
         myNode_->next = NULL;
         myNode_->linked = 0;

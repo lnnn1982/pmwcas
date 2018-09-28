@@ -7,9 +7,14 @@
 namespace pmwcas {
 
 struct QNode {
-    QNode * prev;
-    QNode * next;
-    uint64_t linked;
+    //volatile char padding[64];
+    
+    volatile QNode * prev;
+    volatile char padding[56];
+    volatile QNode * next;
+    volatile char padding1[56];
+    volatile uint64_t linked;
+    volatile char padding2[56];
 
     QNode() : prev(this), next(NULL), linked(0) {}
 };

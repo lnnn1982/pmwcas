@@ -57,7 +57,8 @@ int main(int argc, char* argv[]) {
     if(FLAGS_FASAS_BASE_TYPE == 0) {
       size = sizeof(DescriptorPool::Metadata) +
                     sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
-                    sizeof(CasPtr) * FLAGS_array_size + // share data area
+                    //sizeof(CasPtr) * FLAGS_array_size + // share data area
+                    256 * FLAGS_array_size + // share data area
                     sizeof(CasPtr) * FLAGS_threads;  // private data area
       std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
 	    << ", Descriptor:" << sizeof(Descriptor)
@@ -66,7 +67,8 @@ int main(int argc, char* argv[]) {
     else {
       size = sizeof(DescriptorPool::Metadata) +
                     sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +  // descriptors area
-                    sizeof(FASASCasPtr) * FLAGS_array_size + // share data area
+                    //sizeof(FASASCasPtr) * FLAGS_array_size + // share data area
+                    256 * FLAGS_array_size + // share data area
                     sizeof(FASASCasPtr) * FLAGS_threads;  // private data area
       std::cout << "size:" << size << ", Metadata:" << sizeof(DescriptorPool::Metadata)
 	    << ", FASASDescriptor:" << sizeof(FASASDescriptor)

@@ -650,10 +650,10 @@ struct RecoverMutexTestBase : public BaseFASASTest {
 
     uint64_t metaSize = sizeof(DescriptorPool::Metadata);
     uint64_t descriptorSize = getDescriptorSizeSize();
-    uint64_t qnodePtrSize = sizeof(QNode *) * FLAGS_array_size;
+    uint64_t qnodePtrSize = (sizeof(QNode *)+56) * FLAGS_array_size;
     uint64_t qnodeSize = sizeof(QNode) * FLAGS_threads;
     uint64_t size = metaSize + descriptorSize + qnodePtrSize + qnodeSize;
-    std::cout << "RecoverByOrgPMwCas initSharedMemSegment size:" << std::dec << size 
+    std::cout << "RecoverMutexTestBase initSharedMemSegment size:" << std::dec << size 
         << ", meta size:" << std::dec << metaSize 
         << ", descriptorSize:" << std::dec << descriptorSize 
         << ", qnodePtrSize:" << std::dec << qnodePtrSize 
@@ -672,6 +672,22 @@ struct RecoverMutexTestBase : public BaseFASASTest {
     
     for(int i = 0; i < FLAGS_threads; i++) {
         threadIdOpNumMap_[i] = 0;
+    }
+
+    getCurrentMhz();
+  }
+
+  void getCurrentMhz() {
+    uint64_t start = __rdtsc();
+    sleep(1);
+    uint64_t end = __rdtsc();
+
+    cpu_freq_GHz_ = (double)(end - start)/1000000000;
+
+    std::cout << "cpu_freq_GHz_:" << cpu_freq_GHz_ << std::endl;
+
+    for(int i = 0; i < FLAGS_threads; i++) {
+        threadIdRtdscMap_[i];
     }
   }
 
@@ -715,9 +731,9 @@ struct RecoverMutexTestBase : public BaseFASASTest {
     if(isNewMem_) {
         new(node) QNode();
     }
-    LOG(ERROR) << "thread_index:" << thread_index << ", nodePtr:" 
+    /*LOG(ERROR) << "thread_index:" << thread_index << ", nodePtr:" 
         << node << ", node prev:" << node->prev << ", next:"
-        << node->next << ", link:" << node->linked;
+        << node->next << ", link:" << node->linked;*/
 
     for(int i = 0; i < FLAGS_array_size; i++) {
         getRecoverMutex(i)->setMyNode(node);
@@ -743,13 +759,16 @@ struct RecoverMutexTestBase : public BaseFASASTest {
       
 	  n_success += 1;
       //(threadIdOpNumMap_[thread_index]) = n_success;
+
+      //effect performance
+      //threadIdRtdscMap_[thread_index].push_back(__rdtsc());
     }
     descPool->GetEpoch()->Unprotect();
     (threadIdOpNumMap_[thread_index]) = n_success;
 		
 	auto n = total_success_.fetch_add(threadIdOpNumMap_[thread_index], std::memory_order_seq_cst);
-	LOG(INFO) << "Thread " << thread_index << " n_success: " <<
-	            threadIdOpNumMap_[thread_index] << ", " << n << ", total_success_:" << total_success_;
+	//LOG(INFO) << "Thread " << thread_index << " n_success: " <<
+	            //threadIdOpNumMap_[thread_index] << ", " << n << ", total_success_:" << total_success_;
   }
 
   virtual RecoverMutex * getRecoverMutex(int i) = 0;
@@ -764,6 +783,25 @@ struct RecoverMutexTestBase : public BaseFASASTest {
 
         RAW_CHECK(*(changeValuePtr_+i) == initialValue_, "changeValue_ not right");
     }
+
+    recordLantency();
+  }
+
+  void recordLantency() {
+    uint64_t count = 1;
+    for(int i = 0; i < FLAGS_threads; i++) {
+        std::vector<uint64_t> const & oneThreadVec = threadIdRtdscMap_[i];
+        std::cout << "i:" << i << ", rtdsc size:" << oneThreadVec.size() << std::endl;
+        uint64_t prevRtdsc = 0;
+        for(uint64_t oneRtdsc : oneThreadVec) {
+           if(prevRtdsc != 0) {
+               double nanoSecs = (oneRtdsc - prevRtdsc)/cpu_freq_GHz_;
+               LOG(INFO) << count++ << "," << nanoSecs;               
+           }
+
+           prevRtdsc = oneRtdsc;
+        }
+    }
   }
 
   virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
@@ -775,6 +813,8 @@ struct RecoverMutexTestBase : public BaseFASASTest {
   QNode* nodePtr_;
   size_t * changeValuePtr_;
   size_t initialValue_;
+  double cpu_freq_GHz_;
+  std::unordered_map<size_t, std::vector<uint64_t> > threadIdRtdscMap_;
   
 } ;
 
@@ -784,7 +824,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
     mutexPtr_ = reinterpret_cast<RecoverMutexUsingOrgMwcas*>(
       Allocator::Get()->Allocate(sizeof(RecoverMutexUsingOrgMwcas)*FLAGS_array_size));
     for(int i = 0; i < FLAGS_array_size; i++) {
-      new(mutexPtr_+i) RecoverMutexUsingOrgMwcas(descPool_, tailPtr+i);
+      new(mutexPtr_+i) RecoverMutexUsingOrgMwcas(descPool_, tailPtr+i*8);
     }
 
     std::cout << "mutexPtr_:" << mutexPtr_ << std::endl;
@@ -825,7 +865,7 @@ struct RecoverNew : public RecoverMutexTestBase {
     mutexPtr_ = reinterpret_cast<RecoverMutexNew*>(
       Allocator::Get()->Allocate(sizeof(RecoverMutexNew)*FLAGS_array_size));
     for(int i = 0; i < FLAGS_array_size; i++) {
-      new(mutexPtr_+i) RecoverMutexNew(fasasDescPool_, tailPtr+i);
+      new(mutexPtr_+i) RecoverMutexNew(fasasDescPool_, tailPtr+i*8);
     }
     std::cout << "mutexPtr_:" << mutexPtr_ << std::endl;
   }
