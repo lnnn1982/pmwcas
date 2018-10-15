@@ -22,6 +22,13 @@ DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 
 using namespace pmwcas;
 
+//test gprof
+void testPrint() {
+    for(int i =0; i< 100000*10000; i++) {
+    	float a = (float)100000/3444;
+    }
+}
+
 // Start a process to create a shared memory segment and sleep
 int main(int argc, char* argv[]) {
   google::InitGoogleLogging(argv[0]);
@@ -87,6 +94,8 @@ int main(int argc, char* argv[]) {
   memset(segment->GetMapAddress(), 0, size);
   segment->Detach();
 
+  //testPrint();
+
  /* test nan if necessary
   std::mutex mutex;
   std::unique_lock<std::mutex> lock(mutex);
@@ -96,5 +105,6 @@ int main(int argc, char* argv[]) {
   cv.wait(lock);
 */
 
+  std::cout << "exit" << std::endl;
   return 0;
 }

@@ -4,6 +4,7 @@ set(BENCHMARK_HEADERS
 
 #ADD_PMWCAS_BENCHMARK(mwcas_benchmark)
 ADD_PMWCAS_BENCHMARK(mwcas_shm_server)
+#ADD_PMWCAS_BENCHMARK(testGProfile)
 ADD_PMWCAS_BENCHMARK(doubly_linked_list_benchmark)
 
 add_executable(mwcas_benchmark ${BENCHMARK_HEADERS} mwcas_benchmark.cc fetchStoreStore.cc RecoverMutex.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})

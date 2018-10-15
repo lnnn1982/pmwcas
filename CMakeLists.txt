@@ -24,6 +24,7 @@ else()
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 
+  #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma -pg")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma")
 endif()
@@ -38,6 +39,8 @@ option(WITH_PMEM "Support persistence" ON)
 if(WITH_PMEM)
   add_definitions(-DPMEM)
 endif()
+
+#add_definitions(-pg)
 
 # Turn off RTM by default
 option(WITH_RTM "Use RTM for installing descriptors" OFF)
