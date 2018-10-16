@@ -1,7 +1,5 @@
 #include "fetchStoreStore.h"
 
-using namespace pmwcas::benchmark;
-
 namespace pmwcas {
 
 thread_local uint64_t FetchStoreStore::epochs_ = 0;

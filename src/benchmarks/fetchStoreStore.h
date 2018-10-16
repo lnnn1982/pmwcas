@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mwcas_benchmark.h"
+#include "mwcas_common.h"
 
 
 namespace pmwcas {

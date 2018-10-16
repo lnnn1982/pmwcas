@@ -13,10 +13,6 @@
 using namespace pmwcas::benchmark;
 
 DEFINE_uint64(array_size, 5000, "size of the word array for mwcas benchmark");
-DEFINE_uint64(descriptor_pool_size, 1048576, "number of total descriptors");
-DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
-  " descriptors and data (for persistent MwCAS only)");
-DEFINE_uint64(threads, 8, "number of threads to use for multi-threaded tests");
 DEFINE_string(benchmarks, "FASAS", "fetch store and store");
 DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 

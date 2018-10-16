@@ -85,6 +85,7 @@ retry_entry:
     }
 }
 
+//support both fetch store store and dcas
 bool FASASDescriptor::process()
 {
     DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());

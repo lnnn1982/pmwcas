@@ -14,56 +14,14 @@
 
 using namespace pmwcas::benchmark;
 
-DEFINE_string(benchmarks,
-    "FASAS", "fetch store and store");
+DEFINE_string(benchmarks, "FASAS", "fetch store and store");
 DEFINE_uint64(array_size, 100, "size of the word array for mwcas benchmark");
-DEFINE_uint64(seed, 1234, "base random number generator seed, the thread index"
-    "is added to this number to form the full seed");
 DEFINE_uint64(word_count, 2, "number of words in the multi-word compare and"
     " swap");
-DEFINE_uint64(threads, 8, "number of threads to use for multi-threaded tests");
-DEFINE_uint64(seconds, 30, "default time to run a benchmark");
-DEFINE_uint64(metrics_dump_interval, 0, "if greater than 0, the benchmark "
-              "driver dumps metrics at this fixed interval (in seconds)");
-DEFINE_int32(affinity, 1, "affinity to use in scheduling threads");
-DEFINE_uint64(descriptor_pool_size, 1048576, "number of total descriptors");
-DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
-    " descriptors and data (for persistent MwCAS only)");
-DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
-    " operations");
 DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
-#ifdef PMEM
-DEFINE_uint64(write_delay_ns, 0, "NVRAM write delay (ns)");
-DEFINE_bool(emulate_write_bw, false, "Emulate write bandwidth");
-DEFINE_bool(clflush, true, "Use CLFLUSH, instead of spinning delays."
-  "write_dealy_ns and emulate_write_bw will be ignored.");
-#endif
+
 
 namespace pmwcas {
-
-/// Maximum number of threads that the benchmark driver supports.
-const size_t kMaxNumThreads = 64;
-
-/// Dumps args in a format that can be extracted by an experiment script
-void DumpArgs() {
-  std::cout << "> Args shm_segment " << FLAGS_shm_segment.c_str() << std::endl;
-  std::cout << "> Args threads " << FLAGS_threads << std::endl;
-  std::cout << "> Args word_count " << FLAGS_word_count << std::endl;
-  std::cout << "> Args array_size " << FLAGS_array_size << std::endl;
-  std::cout << "> Args affinity " << FLAGS_affinity << std::endl;
-  std::cout << "> Args desrciptor_pool_size " <<
-      FLAGS_descriptor_pool_size << std::endl;
-
-#ifdef PMEM
-  if(FLAGS_clflush) {
-    printf("> Args using clflush\n");
-  } else {
-    std::cout << "> Args write_delay_ns " << FLAGS_write_delay_ns << std::endl;
-    std::cout << "> Args emulate_write_bw " <<
-        FLAGS_emulate_write_bw << std::endl;
-  }
-#endif
-}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 struct MwCas : public BaseMwCas {
@@ -256,53 +214,6 @@ struct MwCas : public BaseMwCas {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 struct BaseFASASTest : public BaseMwCas {
-  SharedMemorySegment* initSharedMemSegment(std::string const & segmentName, uint64_t size) {
-    SharedMemorySegment* segment = nullptr;
-    auto s = Environment::Get()->NewSharedMemorySegment(segmentName, size, true,
-        &segment);
-    RAW_CHECK(s.ok() && segment, "Error creating memory segment");
-
-    // Attach anywhere to extract the base address we used last time
-    s = segment->Attach();
-    RAW_CHECK(s.ok(), "cannot attach");
-
-	uintptr_t base_address = *(uintptr_t*)((uintptr_t)segment->GetMapAddress() +
-        sizeof(uint64_t));
-    if(base_address) {
-      std::cout << "base_address:" << std::hex << base_address << std::endl;
-      isNewMem_ = false;
-    
-	  // An existing pool, with valid descriptors and data
-      if(base_address != (uintptr_t)segment->GetMapAddress()) {
-        segment->Detach();
-        s = segment->Attach((void*)base_address);
-        if(!s.ok()) {
-          LOG(FATAL) << "Cannot attach to the segment with given base address";
-        }
-
-        RAW_CHECK((uintptr_t)segment->GetMapAddress() == base_address, "base address and map address not match");
-      }
-    } 
-    else {
-      // New pool/data area, store this base address, pass it + meatadata_size
-      // as desc pool va
-      isNewMem_ = true;
-      void* map_address = segment->GetMapAddress();
-      DescriptorPool::Metadata *metadata = (DescriptorPool::Metadata*)map_address;
-      metadata->descriptor_count = FLAGS_descriptor_pool_size;
-      metadata->initial_address = (uintptr_t)map_address;
-
-      std::cout << "Initialized new descriptor pool and data areas" << std::endl;
-    }
-
-    std::cout << "initSharedMemSegment size:" << std::dec << size << ", isNewMem_:" << isNewMem_ << std::endl;
-
-    DescriptorPool::Metadata *metadata = (DescriptorPool::Metadata*)(segment->GetMapAddress());
-    std::cout << "descriptor_count::" << std::dec << metadata->descriptor_count << ", initial_address:"
-        << std::hex << metadata->initial_address << std::endl;
-
-    return segment;
-  }
 
   void Main(size_t thread_index) {
     auto s = MwCASMetrics::ThreadInitialize();
@@ -341,12 +252,10 @@ struct BaseFASASTest : public BaseMwCas {
 	            n_success << ", " << n << ", total_success_:" << total_success_;
   }
 
-  virtual DescriptorPool* getDescPool() = 0;
+
   virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
     uint64_t newValue, FetchStoreStore & fetchStoreStore) = 0;
 
-  bool isNewMem_;
-    
 };
 
  
@@ -559,7 +468,7 @@ struct FASASTest : public BaseFASASTest {
 } ;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
-struct RecoverMutexTestBase : public BaseFASASTest {
+struct RecoverMutexTestBase : public BaseMwCas {
   void Setup(size_t thread_count) {
     if(FLAGS_clflush) {
       NVRAM::InitializeClflush();
@@ -763,16 +672,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
 
   void initDescriptorPool(SharedMemorySegment* segment)
   {
-    Descriptor * poolDesc = (Descriptor*)((uintptr_t)segment->GetMapAddress() +
-      sizeof(DescriptorPool::Metadata));
-	std::cout << "descriptor addr:" << poolDesc << std::endl;
-
-    // Ideally the descriptor pool is sized to the number of threads in the
-    // benchmark to reduce need for new allocations, etc.
-    descPool_ = reinterpret_cast<DescriptorPool *>(
-                         Allocator::Get()->Allocate(sizeof(DescriptorPool)));
-    new(descPool_) DescriptorPool(
-      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+    initMWCasDescriptorPool(segment, &descPool_);
   }
 
   virtual DescriptorPool* getDescPool() {
@@ -906,7 +806,9 @@ void RunBenchmark() {
   std::string benchmark_name{};
   std::stringstream benchmark_stream(FLAGS_benchmarks);
   DumpArgs();
-
+  std::cout << "> Args word_count " << FLAGS_word_count << std::endl;
+  std::cout << "> Args array_size " << FLAGS_array_size << std::endl;
+  
   while(std::getline(benchmark_stream, benchmark_name, ',')) {
     Status s{};
     if("mwcas" == benchmark_name) {

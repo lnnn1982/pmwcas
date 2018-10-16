@@ -382,7 +382,7 @@ protected:
 
   /// Setting kMaxCount to 4 so MwCASDescriptor occupies three cache lines. If
   /// changing this, also remember to adjust the static assert below.
-  static const int kMaxCount = 2;
+  static const int kMaxCount = 4;
 
   /// Free list pointer for managing free pre-allocated descriptor pools
   Descriptor* next_ptr_;
