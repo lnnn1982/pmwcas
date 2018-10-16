@@ -14,14 +14,11 @@ public:
 };
 
 class MSQueue {
-public:
+protected:
     MSQueue(QueueNode ** phead, QueueNode ** ptail) : phead_(phead), ptail_(ptail) {
     }
 
-    virtual void enq(QueueNode ** privateAddr) = 0;
-    virtual void deq(QueueNode ** privateAddr) = 0;
 
-protected:
     QueueNode ** phead_;
     QueueNode ** ptail_;
 };

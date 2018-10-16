@@ -482,6 +482,8 @@ struct RecoverMutexTestBase : public BaseMwCas {
 
     uint64_t metaSize = sizeof(DescriptorPool::Metadata);
     uint64_t descriptorSize = getDescriptorSizeSize();
+    //every tail is 8 bytes, so adding 56 bytes to make it cache line size
+    //array size of tail ptr
     uint64_t qnodePtrSize = (sizeof(QNode *)+56) * FLAGS_array_size;
     uint64_t qnodeSize = sizeof(QNode) * FLAGS_threads;
     uint64_t size = metaSize + descriptorSize + qnodePtrSize + qnodeSize;
@@ -656,6 +658,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
     mutexPtr_ = reinterpret_cast<RecoverMutexUsingOrgMwcas*>(
       Allocator::Get()->Allocate(sizeof(RecoverMutexUsingOrgMwcas)*FLAGS_array_size));
     for(int i = 0; i < FLAGS_array_size; i++) {
+      //8 is for cache padding; original size is 8 bytes, adding 56 bytes
       new(mutexPtr_+i) RecoverMutexUsingOrgMwcas(descPool_, tailPtr+i*8);
     }
 
