@@ -4,6 +4,8 @@ namespace pmwcas {
 
 void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
     QueueNode * newNode = (*privateAddr);
+    RAW_CHECK(nullptr != newNode, "MSQueueByPMWCas::enq node null");
+    
     while(true) {
         QueueNode * last = (QueueNode *)(((CasPtr *)(ptail_))->GetValueProtected());
         if(last == (*ptail_)) {
@@ -26,15 +28,18 @@ void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
     }
 }
 
-void MSQueueByPMWCas::deq(QueueNode ** privateAddr) {
+void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr) {
     while (true) {
         QueueNode * first = (QueueNode *)(((CasPtr *)(phead_))->GetValueProtected());
         QueueNode * last = (QueueNode *)(((CasPtr *)(ptail_))->GetValueProtected());
+        QueueNode * firstNext = (QueueNode *)(((CasPtr *)(&(first->next_)))->GetValueProtected());
 
+        //possible ABA problem, first reclaimed and used as head again. But the node pool has enough nodes and node will not be recycled imediately
+        //this condition means the first is not deleted yet, so firstNext cannot be NULL if first and last not equal.
         if(first == (*phead_)) {
             if(first == last) {
                 //empty
-                if(first->next_ == NULL) {
+                if(firstNext == NULL) {
                     return;
                 }
             }
@@ -47,9 +52,13 @@ void MSQueueByPMWCas::deq(QueueNode ** privateAddr) {
                 dqOldValVec_[1] = (uint64_t)(*privateAddr);
                 //should be the next, but to reclaim the node, return the previous node.
                 //dqNewValVec_[1] = first.next_;
-                dqNewValVec_[1] = (uint64_t)first; 
+                dqNewValVec_[1] = (uint64_t)first;
 
-                if(casOpWrapper_.mwcas(dqTargetAddrVec_, dqOldValVec_, dqNewValVec_, 2)) {
+                dqTargetAddrVec_[2] = (CasPtr *)(deqDataAddr);
+                dqOldValVec_[2] = (uint64_t)(*deqDataAddr);
+                dqNewValVec_[2] = (uint64_t)(firstNext->pData_);
+
+                if(casOpWrapper_.mwcas(dqTargetAddrVec_, dqOldValVec_, dqNewValVec_, 3)) {
                     return;
                 }
             }

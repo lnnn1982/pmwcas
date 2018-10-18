@@ -9,9 +9,9 @@ namespace pmwcas {
 struct QNode {
     //volatile char padding[64];
     
-    volatile QNode * prev;
+    QNode * volatile prev;
     volatile char padding[56];
-    volatile QNode * next;
+    QNode * volatile next;
     volatile char padding1[56];
     volatile uint64_t linked;
     volatile char padding2[56];

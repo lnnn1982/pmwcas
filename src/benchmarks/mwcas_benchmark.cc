@@ -577,7 +577,7 @@ struct RecoverMutexTestBase : public BaseMwCas {
    
     WaitForStart();
 
-	uint64_t epochs = 0;
+	//uint64_t epochs = 0;
 	descPool->GetEpoch()->Protect();
 	uint64_t n_success = 0;
 	uint64_t targetIdx = 0;

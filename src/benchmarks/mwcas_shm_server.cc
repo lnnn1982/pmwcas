@@ -13,7 +13,7 @@
 using namespace pmwcas::benchmark;
 
 DEFINE_uint64(array_size, 5000, "size of the word array for mwcas benchmark");
-DEFINE_string(benchmarks, "FASAS", "fetch store and store");
+DEFINE_string(benchmarks, "MSQUEUE", "");
 DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 
 using namespace pmwcas;
@@ -56,7 +56,16 @@ int main(int argc, char* argv[]) {
 	  << ", Descriptor:" << sizeof(Descriptor)
 	  << ", CasPtr:" << sizeof(CasPtr) << std::endl;
   }
-  else {
+  else if(benchmark == "MSQUEUE") {
+      size = sizeof(DescriptorPool::Metadata) +
+                  sizeof(Descriptor) * FLAGS_descriptor_pool_size;  // descriptors area
+      size += 64*FLAGS_descriptor_pool_size; //queue node size
+      size += 64*2; //queue head tail size
+      size += FLAGS_threads * 128; //extra size
+
+      std::cout << "size:" << size << std::endl;
+  }
+  else {//for recover mutex and fetch store and store
     if(FLAGS_FASAS_BASE_TYPE == 0) {
       size = sizeof(DescriptorPool::Metadata) +
                     sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area

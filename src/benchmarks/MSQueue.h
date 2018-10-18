@@ -5,12 +5,12 @@
 
 namespace pmwcas {
 
-class QueueNode {
+class alignas(kCacheLineSize) QueueNode {
 public:
     uint64_t * pData_;
-    QueueNode * next_;
-
-    QueueNode(uint64_t * pData) : pData_(pData), next_(NULL) {}
+    QueueNode * volatile next_;
+    QueueNode * poolNext_;
+    uint64_t isBusy_;
 };
 
 class MSQueue {
@@ -30,7 +30,7 @@ public:
     }
 
     void enq(QueueNode ** privateAddr);
-    void deq(QueueNode ** privateAddr);
+    void deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr);
 
 
 private:
@@ -39,9 +39,9 @@ private:
     uint64_t eqOldValVec_[3];
     uint64_t eqNewValVec_[3];
 
-    CasPtr* dqTargetAddrVec_[2];
-    uint64_t dqOldValVec_[2];
-    uint64_t dqNewValVec_[2];
+    CasPtr* dqTargetAddrVec_[3];
+    uint64_t dqOldValVec_[3];
+    uint64_t dqNewValVec_[3];
 
 };
 
