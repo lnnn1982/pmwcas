@@ -13,7 +13,7 @@ public:
     uint64_t isBusy_;
 };
 
-class MSQueue {
+class MSQueue {       
 protected:
     MSQueue(QueueNode ** phead, QueueNode ** ptail) : phead_(phead), ptail_(ptail) {
     }
@@ -21,6 +21,8 @@ protected:
 
     QueueNode ** phead_;
     QueueNode ** ptail_;
+
+
 };
 
 class MSQueueByPMWCas : public MSQueue{
@@ -35,13 +37,6 @@ public:
 
 private:
     PMWCasOpWrapper casOpWrapper_;
-    CasPtr* eqTargetAddrVec_[3];
-    uint64_t eqOldValVec_[3];
-    uint64_t eqNewValVec_[3];
-
-    CasPtr* dqTargetAddrVec_[3];
-    uint64_t dqOldValVec_[3];
-    uint64_t dqNewValVec_[3];
 
 };
 

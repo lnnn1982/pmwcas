@@ -183,6 +183,10 @@ struct MSQueueTestBase : public BaseMwCas {
             nodePool->free_list_tail = node;
             nodePool->free_list = node;
         }
+
+        //if reclaim in the head, then always use the same nodes
+        /*node->poolNext_ = nodePool->free_list;
+        nodePool->free_list = node;*/
     }
 
     void initQueueHeadTail(SharedMemorySegment* segment) 
@@ -242,7 +246,7 @@ struct MSQueueTestBase : public BaseMwCas {
         enqNum_.fetch_add(n_enq, std::memory_order_seq_cst);
         deqNum_.fetch_add(n_deq, std::memory_order_seq_cst);
 
-        LOG(INFO) << thread_index << ", n_success: " << threadIdOpNumMap_[thread_index]
+        LOG(ERROR) << thread_index << ", n_success: " << threadIdOpNumMap_[thread_index]
 	            << ", n_enq:" << n_enq << ", n_deq:" << n_deq << std::endl;
     }
 
@@ -343,8 +347,8 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     }
 
     void printOneNode(QueueNode * node) {
-        std::cout << "enqNode pData_:" << node->pData_ << ", next_:" << node->next_
-            << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_ << std::endl;
+        std::cout << "enqNode node:" << node << ", pData_:" << node->pData_ << ", next_:" << node->next_
+            << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_;
     }
 
     void recover(size_t thread_index) {
@@ -389,7 +393,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     void enqueue(size_t thread_index, uint64_t * pData = NULL) {
         QueueNode * newNode = allocateNode(thread_index);
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index;
-        *threadEnqAddr_ = newNode;
+        *threadEnqAddr = newNode;
         NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
 
         newNode->next_ = NULL;
