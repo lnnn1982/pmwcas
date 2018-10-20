@@ -75,6 +75,10 @@ struct MSQueueTestBase : public BaseMwCas {
 
         enqNum_ = 0;
         deqNum_ = 0;
+
+        for(int i = 0; i < FLAGS_threads; i++) {
+            threadIdOpNumMap_[i] = 0;
+        }
     }
 
     void initQueueNodePool(SharedMemorySegment* segment, uint64_t nodeOffset) {
@@ -248,6 +252,8 @@ struct MSQueueTestBase : public BaseMwCas {
 
         LOG(ERROR) << thread_index << ", n_success: " << threadIdOpNumMap_[thread_index]
 	            << ", n_enq:" << n_enq << ", n_deq:" << n_deq << std::endl;
+        LOG(ERROR) << thread_index << ", total_success_: " << total_success_
+	            << ", enqNum_:" << enqNum_ << ", deqNum_:" << deqNum_ << std::endl;
     }
 
     uint64_t getQueueSize() {
@@ -348,7 +354,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
 
     void printOneNode(QueueNode * node) {
         std::cout << "enqNode node:" << node << ", pData_:" << node->pData_ << ", next_:" << node->next_
-            << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_;
+            << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_ << std::endl;
     }
 
     void recover(size_t thread_index) {
