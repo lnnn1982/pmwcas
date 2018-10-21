@@ -2,8 +2,8 @@
 #include "MSQueue.h"
 
 namespace pmwcas {
-/*
-struct OneRecord {
+
+/*struct OneRecord {
     QueueNode * newNode_;
     uint64_t * pData_;
     QueueNode * tail_;
@@ -55,12 +55,12 @@ struct OneRecord {
 };
 
 typedef std::list<OneRecord> OneRecordList;
-OneRecordList recordList[2];
+OneRecordList recordList[8];
 bool isStop = false;
 
 void MSQueue::initRecord() {
     std::cout << "MSQueue::initRecord" << std::endl;
-    for(int i = 0; i < 2; i++) {
+    for(int i = 0; i < 8; i++) {
         OneRecordList oneRecordList;
         recordList[i] = oneRecordList;
     }
@@ -74,7 +74,7 @@ void checkSleep() {
 
 void addRecord(OneRecord const & record, size_t thread_index) {
     checkSleep();
-    if(recordList[thread_index].size() == 50) {
+    if(recordList[thread_index].size() == 40) {
         recordList[thread_index].pop_front();
         recordList[thread_index].push_back(record);
     }
@@ -83,13 +83,21 @@ void addRecord(OneRecord const & record, size_t thread_index) {
     }
 }
 
+
 void printOneRecord(size_t thread_index) {
     std::cout << "thread_index:" << thread_index << std::endl;
     for(OneRecord const & record : recordList[thread_index]) {
         record.print();
     }
 }
+
+void printRecord() {
+    for(int i = 0; i < 8; i++) {
+        printOneRecord(i);
+    }
+}
 */
+
 
 void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
     QueueNode * newNode = (*privateAddr);
@@ -122,7 +130,7 @@ void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
     }
 }
 
-void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr) {
+void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, size_t thread_index) {                      
     CasPtr* dqTargetAddrVec_[3];
     uint64_t dqOldValVec_[3];
     uint64_t dqNewValVec_[3];
@@ -147,17 +155,20 @@ void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr) {
                 dqNewValVec_[0] = (uint64_t)(firstNext);
 
                 dqTargetAddrVec_[1] = (CasPtr *)(privateAddr);
-                dqOldValVec_[1] = (uint64_t)(*privateAddr);
+                //could be modified by other thread. the init value is zero, other thread can put previous descriptor on
+                dqOldValVec_[1] = (uint64_t)(((CasPtr *)(privateAddr))->GetValueProtected());
                 //should be the next, but to reclaim the node, return the previous node.
                 dqNewValVec_[1] = (uint64_t)first;
 
                 dqTargetAddrVec_[2] = (CasPtr *)(deqDataAddr);
-                dqOldValVec_[2] = (uint64_t)(*deqDataAddr);
+                //could be modified by other thread
+                dqOldValVec_[2] = (uint64_t)(((CasPtr *)(deqDataAddr))->GetValueProtected());
                 dqNewValVec_[2] = (uint64_t)(firstNext->pData_);
 
                 if(casOpWrapper_.mwcas(dqTargetAddrVec_, dqOldValVec_, dqNewValVec_, 3)) {
                     return;
                 }
+
             }
         }
     }

@@ -13,7 +13,9 @@ public:
     uint64_t isBusy_;
 };
 
-class MSQueue {       
+class MSQueue {     
+public:
+    static void initRecord();
 protected:
     MSQueue(QueueNode ** phead, QueueNode ** ptail) : phead_(phead), ptail_(ptail) {
     }
@@ -32,7 +34,7 @@ public:
     }
 
     void enq(QueueNode ** privateAddr);
-    void deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr);
+    void deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, size_t thread_index=0);
 
 
 private:

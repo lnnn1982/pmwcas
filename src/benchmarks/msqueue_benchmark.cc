@@ -79,6 +79,8 @@ struct MSQueueTestBase : public BaseMwCas {
         for(int i = 0; i < FLAGS_threads; i++) {
             threadIdOpNumMap_[i] = 0;
         }
+
+        //MSQueue::initRecord();
     }
 
     void initQueueNodePool(SharedMemorySegment* segment, uint64_t nodeOffset) {
@@ -220,7 +222,7 @@ struct MSQueueTestBase : public BaseMwCas {
     virtual void initMSQueue() = 0;
     virtual void initOther(SharedMemorySegment* segment, uint64_t extraOffset) = 0;
     
-    void Main(size_t thread_index) {       
+    void Main(size_t thread_index) {              
         auto s = MwCASMetrics::ThreadInitialize();
 	    RAW_CHECK(s.ok(), "Error initializing thread");
 
@@ -396,9 +398,12 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         }
     }
 
+    //due to the number of nodes, impossible to operated by other threads.
     void enqueue(size_t thread_index, uint64_t * pData = NULL) {
         QueueNode * newNode = allocateNode(thread_index);
+
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index;
+        //the initial value is not the same; another thread cannot put previous descriptor on
         *threadEnqAddr = newNode;
         NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
 
@@ -414,7 +419,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     bool dequeue(size_t thread_index) {
         QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index;
         uint64_t ** deqDataAddr = deqDataAddr_+thread_index;
-        msQueue_->deq(threadDeqAddr, deqDataAddr);
+        msQueue_->deq(threadDeqAddr, deqDataAddr, thread_index);
 
         QueueNode * deqNode = (*threadDeqAddr);
         if(deqNode != NULL) {
@@ -424,12 +429,13 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             //do something about the deq Data
             
             cleanDeqNode(thread_index, deqNode);
-            
-            *threadDeqAddr = NULL;
-            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
 
-            *deqDataAddr = NULL;
-            NVRAM::Flush(sizeof(uint64_t *), (const void*)deqDataAddr);
+            //no use to set null here. possible to be modified by other threads
+            //*threadDeqAddr = NULL;
+            //NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+
+            //*deqDataAddr = NULL;
+            //NVRAM::Flush(sizeof(uint64_t *), (const void*)deqDataAddr);
 
             return true;
         }
@@ -440,6 +446,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     void cleanDeqNode(size_t thread_index, QueueNode * deqNode) {
         deqNode->next_ = NULL;
         deqNode->pData_ = NULL;
+        //need to set isBusy to zero
         deqNode->isBusy_= 0;
 
         NVRAM::Flush(sizeof(QueueNode), (const void*)deqNode);
