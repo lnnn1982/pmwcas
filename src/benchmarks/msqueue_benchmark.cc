@@ -309,8 +309,9 @@ struct MSQueueTestBase : public BaseMwCas {
 
 struct MSQueueTPMWCasest : public MSQueueTestBase {
     uint64_t getExtraSize() {
-        return sizeof(QueueNode **) * FLAGS_threads + sizeof(QueueNode **) * FLAGS_threads
-            + sizeof(uint64_t **) * FLAGS_threads;
+        //return sizeof(QueueNode **) * FLAGS_threads + sizeof(QueueNode **) * FLAGS_threads
+            //+ sizeof(uint64_t **) * FLAGS_threads;
+        return 64*3* FLAGS_threads;
     }
 
     void initMSQueue() {
@@ -322,16 +323,17 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     void initOther(SharedMemorySegment* segment, uint64_t extraOffset) {
         threadEnqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset);
         threadDeqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset +  
-                sizeof(QueueNode **) * FLAGS_threads);
+                64 * FLAGS_threads);
         deqDataAddr_ = (uint64_t **)((uintptr_t)segment->GetMapAddress() + extraOffset +  
-                sizeof(QueueNode **) * FLAGS_threads * 2);
+                64 * FLAGS_threads * 2);
                 
         printExtraInfo();
     }
 
     void printExtraInfo() {
         for(int i = 0; i < FLAGS_threads; i++) {
-            QueueNode ** threadEnqAddr = threadEnqAddr_+i;
+            //should be 8 not 64
+            QueueNode ** threadEnqAddr = threadEnqAddr_+i*8;
             QueueNode * enqNode = (*threadEnqAddr);
             std::cout << "threadEnqAddr. i:" << i << ", addr:" << threadEnqAddr 
                 << ", enqNode:" << (enqNode) << std::endl;
@@ -339,7 +341,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
                 printOneNode(enqNode);
             }
                 
-            QueueNode ** threadDeqAddr = threadDeqAddr_+i;
+            QueueNode ** threadDeqAddr = threadDeqAddr_+i*8;
             QueueNode * deqNode = (*threadDeqAddr);
             std::cout << "threadDeqAddr. i:" << i << ", addr:" << threadDeqAddr 
                 << ", deqNode:" << (deqNode) << std::endl;
@@ -347,7 +349,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
                 printOneNode(deqNode);
             }
 
-            uint64_t ** deqDataAddr = deqDataAddr_+i;
+            uint64_t ** deqDataAddr = deqDataAddr_+i*8;
             uint64_t * deqDataPtr = (*deqDataAddr);
             std::cout << "deqDataAddr. i:" << i << ", addr:" << deqDataAddr 
                 << ", deqDataPtr:" << (deqDataPtr) << std::endl;
@@ -365,7 +367,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     }
 
     void recoverEnq(size_t thread_index) {
-        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index;
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
         QueueNode * enqNode = (*threadEnqAddr);
         if(enqNode != NULL) {
             if(enqNode->isBusy_ == 1) {
@@ -380,7 +382,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     }
 
     void recoverDeq(size_t thread_index) {
-        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index;
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
         QueueNode * deqNode = (*threadDeqAddr);
         if(deqNode != NULL) {
             if(deqNode->isBusy_ == 1) {
@@ -391,7 +393,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
         }
 
-        uint64_t ** deqDataAddr = deqDataAddr_ + thread_index;
+        uint64_t ** deqDataAddr = deqDataAddr_ + thread_index*8;
         if(*deqDataAddr) {
             *deqDataAddr = NULL;
             NVRAM::Flush(sizeof(uint64_t *), (const void*)deqDataAddr);
@@ -402,7 +404,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     void enqueue(size_t thread_index, uint64_t * pData = NULL) {
         QueueNode * newNode = allocateNode(thread_index);
 
-        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index;
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
         //the initial value is not the same; another thread cannot put previous descriptor on
         *threadEnqAddr = newNode;
         NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
@@ -417,8 +419,8 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     }
  
     bool dequeue(size_t thread_index) {
-        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index;
-        uint64_t ** deqDataAddr = deqDataAddr_+thread_index;
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+        uint64_t ** deqDataAddr = deqDataAddr_+thread_index*8;
         msQueue_->deq(threadDeqAddr, deqDataAddr, thread_index);
 
         QueueNode * deqNode = (*threadDeqAddr);

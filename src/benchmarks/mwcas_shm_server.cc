@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
                   sizeof(Descriptor) * FLAGS_descriptor_pool_size;  // descriptors area
       size += 64*FLAGS_descriptor_pool_size; //queue node size
       size += 64*2; //queue head tail size
-      size += FLAGS_threads * 128; //extra size
+      size += FLAGS_threads * 1024; //extra size
 
       std::cout << "size:" << size << std::endl;
   }
