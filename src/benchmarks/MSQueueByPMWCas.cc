@@ -131,9 +131,9 @@ void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
 }
 
 void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, size_t thread_index) {                      
-    CasPtr* dqTargetAddrVec_[3];
-    uint64_t dqOldValVec_[3];
-    uint64_t dqNewValVec_[3];
+    CasPtr* dqTargetAddrVec_[2];
+    uint64_t dqOldValVec_[2];
+    uint64_t dqNewValVec_[2];
     
     while (true) {
         QueueNode * first = (QueueNode *)(((CasPtr *)(phead_))->GetValueProtected());
@@ -160,12 +160,12 @@ void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, siz
                 //should be the next, but to reclaim the node, return the previous node.
                 dqNewValVec_[1] = (uint64_t)first;
 
-                dqTargetAddrVec_[2] = (CasPtr *)(deqDataAddr);
+                //dqTargetAddrVec_[2] = (CasPtr *)(deqDataAddr);
                 //could be modified by other thread
-                dqOldValVec_[2] = (uint64_t)(((CasPtr *)(deqDataAddr))->GetValueProtected());
-                dqNewValVec_[2] = (uint64_t)(firstNext->pData_);
+                //dqOldValVec_[2] = (uint64_t)(((CasPtr *)(deqDataAddr))->GetValueProtected());
+                //dqNewValVec_[2] = (uint64_t)(firstNext->pData_);
 
-                if(casOpWrapper_.mwcas(dqTargetAddrVec_, dqOldValVec_, dqNewValVec_, 3)) {
+                if(casOpWrapper_.mwcas(dqTargetAddrVec_, dqOldValVec_, dqNewValVec_, 2)) {
                     return;
                 }
 

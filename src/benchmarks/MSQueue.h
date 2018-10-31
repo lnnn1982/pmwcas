@@ -42,46 +42,38 @@ private:
 
 };
 
+class LogQueueNode;
+
+struct alignas(kCacheLineSize) LogEntry {
+    uint64_t operationNum_;
+    uint32_t operation_;
+    uint32_t status_;
+    LogQueueNode * volatile node_;
+    LogEntry * poolNext_;
+    
+    LogEntry(uint64_t operationNum, uint32_t operation, uint32_t status, LogQueueNode * node)
+        : operationNum_(operationNum), operation_(operation), status_(status), node_(node) {}
+};
+
+class alignas(kCacheLineSize) LogQueueNode : public QueueNode {
+public:
+    LogEntry * logInsert_;
+    LogEntry * logRemove_;
+};
+
+
+class LogQueue : public MSQueue{
+public:
+    LogQueue(QueueNode ** phead, QueueNode ** ptail) 
+        : MSQueue(phead, ptail) {
+    }
+
+    void enq(LogEntry * logEntry);
+    bool deq(LogEntry * logEntry);
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+};
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

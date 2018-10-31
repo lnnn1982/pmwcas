@@ -11,6 +11,7 @@ add_executable(mwcas_benchmark ${BENCHMARK_HEADERS} mwcas_benchmark.cc fetchStor
 target_link_libraries(mwcas_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APPS_LINK_LIBS})
 
 
-add_executable(msqueue_benchmark ${BENCHMARK_HEADERS} msqueue_benchmark.cc PMWCasOpWrapper.cc MSQueueByPMWCas.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
+add_executable(msqueue_benchmark ${BENCHMARK_HEADERS} msqueue_benchmark.cc PMWCasOpWrapper.cc MSQueueByPMWCas.cc 
+MSQueueByLog.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
 target_link_libraries(msqueue_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APPS_LINK_LIBS})
 

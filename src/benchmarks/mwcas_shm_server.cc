@@ -59,7 +59,8 @@ int main(int argc, char* argv[]) {
   else if(benchmark == "MSQUEUE") {
       size = sizeof(DescriptorPool::Metadata) +
                   sizeof(Descriptor) * FLAGS_descriptor_pool_size;  // descriptors area
-      size += 64*FLAGS_descriptor_pool_size; //queue node size
+      size += 128*FLAGS_descriptor_pool_size; //queue node size
+      size += 64*FLAGS_descriptor_pool_size; //log node size
       size += 64*2; //queue head tail size
       size += FLAGS_threads * 1024; //extra size
 
