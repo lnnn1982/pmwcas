@@ -2,6 +2,7 @@
 
 #include "mwcas_common.h"
 #include "PMWCasOpWrapper.h"
+#include "fetchStoreStore.h"
 
 namespace pmwcas {
 
@@ -34,13 +35,53 @@ public:
     }
 
     void enq(QueueNode ** privateAddr);
-    void deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, size_t thread_index=0);
+    void deq(QueueNode ** privateAddr, size_t thread_index=0);
 
 
 private:
     PMWCasOpWrapper casOpWrapper_;
 
 };
+
+class MSQueueByPMWCasV2 : public MSQueue{
+public:
+    MSQueueByPMWCasV2(QueueNode ** phead, QueueNode ** ptail, FASASDescriptorPool* descPool) 
+        : MSQueue(phead, ptail), fetchSS_(), descPool_(descPool) {
+    }
+
+    void enq(QueueNode ** privateAddr);
+    void deq(QueueNode ** privateAddr);
+
+
+private:
+    FetchStoreStore fetchSS_;
+    FASASDescriptorPool * descPool_;
+
+};
+
+
+class alignas(kCacheLineSize) OrgCasNode : public QueueNode {
+public:
+    size_t del_thread_index_;
+};
+
+
+
+class MSQueueByOrgCas : public MSQueue{
+public:
+    MSQueueByOrgCas(QueueNode ** phead, QueueNode ** ptail)
+        : MSQueue(phead, ptail){
+    }
+
+    void enq(OrgCasNode ** privateAddr);
+    bool deq(OrgCasNode ** privateAddr, size_t thread_index);
+
+
+
+};
+
+
+
 
 class LogQueueNode;
 
@@ -70,9 +111,6 @@ public:
 
     void enq(LogEntry * logEntry);
     bool deq(LogEntry * logEntry);
-
-
-
 };
 
 }

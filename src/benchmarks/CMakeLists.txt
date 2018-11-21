@@ -12,6 +12,6 @@ target_link_libraries(mwcas_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APP
 
 
 add_executable(msqueue_benchmark ${BENCHMARK_HEADERS} msqueue_benchmark.cc PMWCasOpWrapper.cc MSQueueByPMWCas.cc 
-MSQueueByLog.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
+MSQueueByLog.cc MSQueueByPMCasV2.cc fetchStoreStore.cc MSQueueByOrgCas.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
 target_link_libraries(msqueue_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APPS_LINK_LIBS})
 

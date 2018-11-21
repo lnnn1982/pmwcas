@@ -130,7 +130,7 @@ void MSQueueByPMWCas::enq(QueueNode ** privateAddr) {
     }
 }
 
-void MSQueueByPMWCas::deq(QueueNode ** privateAddr, uint64_t ** deqDataAddr, size_t thread_index) {                      
+void MSQueueByPMWCas::deq(QueueNode ** privateAddr, size_t thread_index) {                      
     CasPtr* dqTargetAddrVec_[2];
     uint64_t dqOldValVec_[2];
     uint64_t dqNewValVec_[2];

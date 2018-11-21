@@ -38,7 +38,7 @@ struct MSQueueTestBase : public BaseMwCas {
         }
 
         uint64_t metaSize = sizeof(DescriptorPool::Metadata);
-        uint64_t descriptorSize = sizeof(Descriptor) * FLAGS_descriptor_pool_size;
+        uint64_t descriptorSize = getDescriptorSizeSize();
         uint64_t nodeSize = getNodeSize() * FLAGS_node_size;
         uint64_t queueHeadSize = sizeof(QueueNode **)+56; //make it to cacheline size
         uint64_t queueTailSize = sizeof(QueueNode **)+56;
@@ -56,7 +56,7 @@ struct MSQueueTestBase : public BaseMwCas {
         std::string segname(FLAGS_shm_segment);
         SharedMemorySegment* segment = initSharedMemSegment(segname, size);
 
-        initMWCasDescriptorPool(segment, &descPool_);
+        initDescriptorPool(segment);
 
         queueHead_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + metaSize+descriptorSize+nodeSize);
         queueTail_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + metaSize+descriptorSize+nodeSize+queueHeadSize);
@@ -79,9 +79,12 @@ struct MSQueueTestBase : public BaseMwCas {
         for(int i = 0; i < FLAGS_threads; i++) {
             threadIdOpNumMap_[i] = 0;
         }
-
+        //for debug
         //MSQueue::initRecord();
     }
+
+    virtual uint64_t getDescriptorSizeSize() = 0;
+    virtual void initDescriptorPool(SharedMemorySegment* segment) = 0;
 
     void initQueueNodePool(SharedMemorySegment* segment, uint64_t nodeOffset) {
         nodePoolTbl_ = (EntryNodePool*)Allocator::Get()->AllocateAligned(
@@ -225,7 +228,9 @@ struct MSQueueTestBase : public BaseMwCas {
 
         WaitForStart();
 
-        descPool_->GetEpoch()->Protect();
+        if(getDescPool() != NULL) {
+            getDescPool()->GetEpoch()->Protect();
+        }
 
         recover(thread_index);
         
@@ -243,8 +248,11 @@ struct MSQueueTestBase : public BaseMwCas {
 
             n_success += 4;
         }
+
+        if(getDescPool() != NULL) {
+            getDescPool()->GetEpoch()->Unprotect();
+        }
         
-        descPool_->GetEpoch()->Unprotect();
         (threadIdOpNumMap_[thread_index]) = n_success;
 
         total_success_.fetch_add(threadIdOpNumMap_[thread_index], std::memory_order_seq_cst);
@@ -294,8 +302,7 @@ struct MSQueueTestBase : public BaseMwCas {
 
     QueueNode ** queueHead_;
     QueueNode ** queueTail_;
-    DescriptorPool* descPool_;
-
+    
 private:
     EntryNodePool* nodePoolTbl_;
     QueueNode * nodePtr_;
@@ -308,11 +315,26 @@ public:
 
 };
 
+//MSQueueTPMWCasest begin///////////////////////////////////////////////////////////////////////////
+
 struct MSQueueTPMWCasest : public MSQueueTestBase {
+    uint64_t getDescriptorSizeSize() {
+        return sizeof(Descriptor) * FLAGS_descriptor_pool_size;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+        initMWCasDescriptorPool(segment, &descPool_);
+    }
+
+    virtual DescriptorPool* getDescPool() {
+        return descPool_;
+    }
+
     uint64_t getExtraSize() {
         //return sizeof(QueueNode **) * FLAGS_threads + sizeof(QueueNode **) * FLAGS_threads
             //+ sizeof(uint64_t **) * FLAGS_threads;
-        return 64*3* FLAGS_threads;
+        //return 64*3* FLAGS_threads;
+        return 64*2* FLAGS_threads;
     }
 
     virtual size_t getNodeSize() {
@@ -329,8 +351,8 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         threadEnqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset);
         threadDeqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset +  
                 64 * FLAGS_threads);
-        deqDataAddr_ = (uint64_t **)((uintptr_t)segment->GetMapAddress() + extraOffset +  
-                64 * FLAGS_threads * 2);
+        //deqDataAddr_ = (uint64_t **)((uintptr_t)segment->GetMapAddress() + extraOffset +  
+                //64 * FLAGS_threads * 2);
                 
         printExtraInfo();
     }
@@ -354,15 +376,15 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
                 printOneNode(deqNode);
             }
 
-            uint64_t ** deqDataAddr = deqDataAddr_+i*8;
+            /*uint64_t ** deqDataAddr = deqDataAddr_+i*8;
             uint64_t * deqDataPtr = (*deqDataAddr);
             std::cout << "deqDataAddr. i:" << i << ", addr:" << deqDataAddr 
-                << ", deqDataPtr:" << (deqDataPtr) << std::endl;
+                << ", deqDataPtr:" << (deqDataPtr) << std::endl;*/
         }
     }
 
     void printOneNode(QueueNode * node, const char * info = "") {
-        std::cout << "enqNode node:" << node << ", pData_:" << node->pData_ << ", next_:" << node->next_
+        std::cout << "printOneNode node:" << node << ", pData_:" << node->pData_ << ", next_:" << node->next_
             << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_ << std::endl;
     }
 
@@ -375,14 +397,20 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
         QueueNode * enqNode = (*threadEnqAddr);
         if(enqNode != NULL) {
-            if(enqNode->isBusy_ == 1) {
-                msQueue_->enq(threadEnqAddr);
-                orgQueueSize_++;
-            }
-            else {
-                *threadEnqAddr = NULL;
-                NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
-            }
+            std::cout << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
+            doRecoverEnq(threadEnqAddr, enqNode);
+        }
+    }
+
+    void doRecoverEnq(QueueNode ** threadEnqAddr, QueueNode * enqNode) {
+        if(enqNode->isBusy_ == 1) {
+            rawEnque(threadEnqAddr);
+            orgQueueSize_++;
+        }
+        else {
+            *threadEnqAddr = NULL;
+            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
         }
     }
 
@@ -390,26 +418,33 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
         QueueNode * deqNode = (*threadDeqAddr);
         if(deqNode != NULL) {
-            if(deqNode->isBusy_ == 1) {
-                cleanDeqNode(thread_index, deqNode);
-            }
-
-            *threadDeqAddr = NULL;
-            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+            std::cout << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+            doRecoverDeq(thread_index, threadDeqAddr, deqNode);
         }
 
-        uint64_t ** deqDataAddr = deqDataAddr_ + thread_index*8;
+        /*uint64_t ** deqDataAddr = deqDataAddr_ + thread_index*8;
         if(*deqDataAddr) {
             *deqDataAddr = NULL;
             NVRAM::Flush(sizeof(uint64_t *), (const void*)deqDataAddr);
+        }*/
+    }
+
+    void doRecoverDeq(size_t thread_index, QueueNode ** threadDeqAddr, QueueNode * deqNode) {
+        if(deqNode->isBusy_ == 1) {
+            cleanDeqNode(thread_index, deqNode);
         }
+
+        *threadDeqAddr = NULL;
+        //seem unnecesary to flush. When restart, will check the busy of node. But to know last operation, need flush
+        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
     }
 
     QueueNode * genSentinelNode() {
         QueueNode * begNode = allocateNode(0);
         std::cout << "queue empty. Give a sentinel node:" << begNode << std::endl;
         begNode->isBusy_ = 1;
-        //begNode->next_ = NULL;
+        begNode->next_ = NULL;
         begNode->pData_ = NULL;
 
         NVRAM::Flush(sizeof(QueueNode), (const void*)begNode);
@@ -422,6 +457,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
 
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
         //the initial value is not the same; another thread cannot put previous descriptor on
+        //possible to get a descriptor? better to use get protected value
         *threadEnqAddr = newNode;
         NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
 
@@ -431,14 +467,18 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         //printOneNode(newNode);
         NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
 
+        rawEnque(threadEnqAddr);
+    }
+
+    virtual void rawEnque(QueueNode ** threadEnqAddr) {
         msQueue_->enq(threadEnqAddr);
     }
- 
+    
     bool dequeue(size_t thread_index) {
         QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
-        uint64_t ** deqDataAddr = deqDataAddr_+thread_index*8;
-        msQueue_->deq(threadDeqAddr, deqDataAddr, thread_index);
+        msQueue_->deq(threadDeqAddr, thread_index);
 
+        //possible to get a descriptor? better to use get protected value
         QueueNode * deqNode = (*threadDeqAddr);
         if(deqNode != NULL) {
             //another thread may also deq, then the realDeqNode maybe reclaimed with epoch
@@ -446,7 +486,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             //QueueNode * realDeqNode = deqNode->next_;
 
             //do something about the deq Data
-            
+            //if recover, could be reclaim again. need to check isBusy first.
             cleanDeqNode(thread_index, deqNode);
 
             //no use to set null here. possible to be modified by other threads
@@ -464,20 +504,209 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
 
     void cleanDeqNode(size_t thread_index, QueueNode * deqNode) {
         //need to set isBusy to zero
+        if(deqNode->isBusy_ == 0) {
+            return;
+        }
+        
         deqNode->isBusy_= 0;
-        deqNode->next_ = NULL;
+        //enq may succ if set this to null just as log queue.
+        //deqNode->next_ = NULL;
         deqNode->pData_ = NULL;
 
         NVRAM::Flush(sizeof(QueueNode), (const void*)deqNode);
         reclaimNode(deqNode, thread_index);
     }
 
-    MSQueueByPMWCas * msQueue_;
+
+    
     QueueNode ** threadEnqAddr_;
     QueueNode ** threadDeqAddr_;
-    uint64_t ** deqDataAddr_;
+    //uint64_t ** deqDataAddr_;
+
+private:
+    DescriptorPool* descPool_;
+    MSQueueByPMWCas * msQueue_;
 };
 
+
+//MSQueuePMWCasV2Test begin///////////////////////////////////////////////////////////////////////////
+
+struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
+    uint64_t getDescriptorSizeSize() {
+        return sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+        initFASSDescriptorPool(segment, &fasasDescPool_);
+    }
+
+    virtual DescriptorPool* getDescPool() {
+        return fasasDescPool_;
+    }
+
+    void initMSQueue() {
+        msQueue_ = reinterpret_cast<MSQueueByPMWCasV2*>(Allocator::Get()->Allocate(
+            sizeof(MSQueueByPMWCasV2)));
+        new(msQueue_) MSQueueByPMWCasV2(queueHead_, queueTail_, fasasDescPool_);
+    }
+
+    virtual void rawEnque(QueueNode ** threadEnqAddr) {
+        msQueue_->enq(threadEnqAddr);
+    }
+
+    void recover(size_t thread_index) {
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        QueueNode * enqNode = (*threadEnqAddr);
+
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+        QueueNode * deqNode = (*threadDeqAddr);
+
+        RAW_CHECK(!(enqNode != NULL && deqNode != NULL), 
+            "MSQueuePMWCasV2Test::recover deq node and enq node not null at the same time");
+
+        if(enqNode != NULL) {
+            std::cout << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
+            doRecoverEnq(threadEnqAddr, enqNode);
+        }
+
+        if(deqNode != NULL) {
+            std::cout << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+            doRecoverDeq(thread_index, threadDeqAddr, deqNode);
+        }
+    }
+
+    void enqueue(size_t thread_index, uint64_t * pData = NULL) {
+        QueueNode * newNode = allocateNode(thread_index);
+
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        *threadEnqAddr = newNode;
+        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
+
+        newNode->next_ = NULL;
+        newNode->pData_ = pData;
+        newNode->isBusy_= 1;
+        //printOneNode(newNode);
+        NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
+
+        rawEnque(threadEnqAddr);
+    }
+    
+    bool dequeue(size_t thread_index) {
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+
+        msQueue_->deq(threadDeqAddr);
+
+        QueueNode * deqNode = (*threadDeqAddr);
+        if(deqNode != NULL) {
+            cleanDeqNode(thread_index, deqNode);
+            *threadDeqAddr = NULL;
+            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+
+            return true;
+        }
+
+        return false;
+    }
+
+
+    FASASDescriptorPool* fasasDescPool_;
+
+    MSQueueByPMWCasV2 * msQueue_;
+
+};
+
+//MSQueueByOrgCasTest begin///////////////////////////////////////////////////////////////////////////
+
+struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
+    uint64_t getDescriptorSizeSize() {
+        return 0;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+    }
+
+    virtual size_t getNodeSize() {
+        return sizeof(OrgCasNode);
+    }
+
+    virtual DescriptorPool* getDescPool() {
+        return NULL;
+    }
+
+    void initMSQueue() {
+        msQueue_ = reinterpret_cast<MSQueueByOrgCas*>(Allocator::Get()->Allocate(
+            sizeof(MSQueueByOrgCas)));
+        new(msQueue_) MSQueueByOrgCas(queueHead_, queueTail_);
+    }
+
+    OrgCasNode * genSentinelNode() {
+        OrgCasNode * begNode = (OrgCasNode *)allocateNode(0);
+        std::cout << "org queue empty. Give a sentinel node:" << begNode << std::endl;
+        begNode->isBusy_ = 1;
+        begNode->next_ = NULL;
+        begNode->pData_ = NULL;
+        begNode->del_thread_index_ = -1;
+        
+        NVRAM::Flush(sizeof(OrgCasNode), (const void*)begNode);
+        return begNode;
+    }
+
+    void recover(size_t thread_index) {
+    }
+
+    void enqueue(size_t thread_index, uint64_t * pData = NULL) {
+        OrgCasNode * newNode = (OrgCasNode *)allocateNode(thread_index);
+
+        OrgCasNode ** threadEnqAddr = (OrgCasNode **)(threadEnqAddr_+thread_index*8);
+        *threadEnqAddr = newNode;
+        NVRAM::Flush(sizeof(OrgCasNode *), (const void*)threadEnqAddr);
+
+        newNode->next_ = NULL;
+        newNode->pData_ = pData;
+        newNode->isBusy_= 1;
+        newNode->del_thread_index_ = -1;
+        //printOneNode(newNode);
+        NVRAM::Flush(sizeof(OrgCasNode), (const void*)newNode);
+
+        msQueue_->enq(threadEnqAddr);
+    }
+    
+    bool dequeue(size_t thread_index) {
+        OrgCasNode ** threadDeqAddr = (OrgCasNode **)(threadDeqAddr_+thread_index*8);
+        if(!msQueue_->deq(threadDeqAddr, thread_index)) {
+            return false;
+        }
+        
+        OrgCasNode * deqNode = (*threadDeqAddr);
+        RAW_CHECK(nullptr != deqNode, "MSQueueByOrgCas deqNode null");
+
+        cleanDeqNode(thread_index, deqNode);
+        *threadDeqAddr = NULL;
+        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+
+        return true;
+    }
+
+    void cleanDeqNode(size_t thread_index, OrgCasNode * deqNode) {
+        deqNode->isBusy_= 0;
+        //set next to null, make enqueue cas succ again by another thread.
+        //deqNode->next_ = NULL;
+        deqNode->pData_ = NULL;
+        //can't set thread index to the original value, because another thread may compare this value.
+        //deqNode->del_thread_index_ = -1;
+        
+        NVRAM::Flush(sizeof(OrgCasNode), (const void*)deqNode);
+
+        reclaimNode(deqNode, thread_index);
+    }
+
+    MSQueueByOrgCas * msQueue_;
+
+};
+
+//MSLogQueueTest begin///////////////////////////////////////////////////////////////////////////
 
 struct MSLogQueueTest : public MSQueueTestBase {
     uint64_t getExtraSize() {
@@ -563,7 +792,7 @@ struct MSLogQueueTest : public MSQueueTestBase {
         std::cout << "log queue empty. Give a sentinel node:" << begNode << std::endl;
         begNode->isBusy_ = 1;
         begNode->next_ = NULL;
-        //begNode->pData_ = NULL;
+        begNode->pData_ = NULL;
         begNode->logInsert_ = NULL;
         begNode->logRemove_ = NULL;
         
@@ -683,8 +912,13 @@ struct MSLogQueueTest : public MSQueueTestBase {
         }
     }
 
+    uint64_t getDescriptorSizeSize() {
+        return 0;
+    }
 
-
+    virtual void initDescriptorPool(SharedMemorySegment* segment){
+    }
+    
     LogQueue * msQueue_;
     LogEntry ** threadLogEntry_;
 
@@ -731,6 +965,16 @@ void runBenchmark() {
     if(FLAGS_queue_impl_type == 0) {
         std::cout << "************MSQueueTPMWCasest test***************" << std::endl;
         MSQueueTPMWCasest test;
+        doTest(test);
+    }
+    else if(FLAGS_queue_impl_type == 2) {
+        std::cout << "************MSQueuePMWCasV2Test test***************" << std::endl;
+        MSQueuePMWCasV2Test test;
+        doTest(test);
+    }
+    else if(FLAGS_queue_impl_type == 3) {
+        std::cout << "************MSQueueByOrgCasTest test***************" << std::endl;
+        MSQueueByOrgCasTest test;
         doTest(test);
     }
     else if(FLAGS_queue_impl_type == 1) {

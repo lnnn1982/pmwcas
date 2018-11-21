@@ -203,6 +203,25 @@ struct BaseMwCas : public Benchmark {
       FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
   }
 
+
+  void initFASSDescriptorPool(SharedMemorySegment* segment, FASASDescriptorPool** descPool)
+  {
+    FASASDescriptor * poolDesc = (FASASDescriptor*)((uintptr_t)segment->GetMapAddress() +
+      sizeof(DescriptorPool::Metadata));
+	std::cout << "fasas descriptor addr:" << poolDesc << std::endl;
+
+    // Ideally the descriptor pool is sized to the number of threads in the
+    // benchmark to reduce need for new allocations, etc.
+    *descPool = reinterpret_cast<FASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(FASASDescriptorPool)));
+    new(*descPool) FASASDescriptorPool(
+      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+  }
+
+
+
+  
+
 ///////////////////////////////////////////////////////////////////////////////
 
   
