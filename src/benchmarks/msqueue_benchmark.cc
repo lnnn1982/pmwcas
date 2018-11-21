@@ -489,7 +489,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             //if recover, could be reclaim again. need to check isBusy first.
             cleanDeqNode(thread_index, deqNode);
 
-            //no use to set null here. possible to be modified by other threads
+            //no use to set null here. possible to be modified by other threads. They may put a descriptor here or change value to the original one.
             //*threadDeqAddr = NULL;
             //NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
 
@@ -684,7 +684,8 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
 
         cleanDeqNode(thread_index, deqNode);
         *threadDeqAddr = NULL;
-        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+        //recover not need to know the actually operation
+        //NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
 
         return true;
     }

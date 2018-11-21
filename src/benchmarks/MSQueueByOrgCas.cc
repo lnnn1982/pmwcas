@@ -14,7 +14,8 @@ void MSQueueByOrgCas::enq(OrgCasNode ** privateAddr) {
                 if(CompareExchange64((QueueNode **)(&(last->next_)), (QueueNode *)newNode, (QueueNode *)next) == next) {
                     NVRAM::Flush(sizeof(newNode), (const void*)(&(last->next_)));
                     *privateAddr = NULL;
-                    NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
+                    //recover not need to know the acutuall operation.
+                    //NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
                     CompareExchange64(ptail_, (QueueNode *)newNode, last);
                     return;
                 }
