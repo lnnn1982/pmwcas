@@ -43,6 +43,7 @@ private:
 
 
     uint64_t* privateAddress_;
+    bool isPrivateAddrSet_;
 
 };
 

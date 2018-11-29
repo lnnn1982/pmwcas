@@ -127,6 +127,12 @@ DescriptorPool::DescriptorPool(
           in_progress_desc++;
           for(int w = 0; w < desc.count_; ++w) {
             auto& word = desc.words_[w];
+
+            if((*word.address_) & Descriptor::kDirtyFlag) {
+                (*word.address_) &= ~Descriptor::kDirtyFlag;
+                word.PersistAddress();
+            }
+                      
             uint64_t val = Descriptor::CleanPtr(*word.address_);
 
             if(val == (uint64_t)&desc || val == (uint64_t)&word) {
@@ -153,6 +159,11 @@ DescriptorPool::DescriptorPool(
 
           for(int w = 0; w < desc.count_; ++w) {
             auto& word = desc.words_[w];
+
+            if((*word.address_) & Descriptor::kDirtyFlag) {
+                (*word.address_) &= ~Descriptor::kDirtyFlag;
+                word.PersistAddress();
+            }
 
             uint64_t val = Descriptor::CleanPtr(*word.address_);
             RAW_CHECK(val != (uint64_t)&word, "invalid field value");

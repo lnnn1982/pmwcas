@@ -70,13 +70,22 @@ public:
 class MSQueueByOrgCas : public MSQueue{
 public:
     MSQueueByOrgCas(QueueNode ** phead, QueueNode ** ptail)
-        : MSQueue(phead, ptail){
+        : MSQueue(phead, ptail), isRecoverFinish_(false){
     }
 
     void enq(OrgCasNode ** privateAddr);
     bool deq(OrgCasNode ** privateAddr, size_t thread_index);
 
-
+    //void recover(OrgCasNode ** threadEnqAddr, size_t threadCnt, size_t thread_index);
+    void recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, size_t thread_index);
+    
+private:
+    /*void  checkEnqNode(OrgCasNode ** threadEnqAddr, size_t threadCnt,
+            OrgCasNode * node) ;*/
+    void checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
+            OrgCasNode * node) ;
+    
+    volatile bool isRecoverFinish_;
 
 };
 

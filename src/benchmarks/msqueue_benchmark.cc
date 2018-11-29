@@ -1,5 +1,6 @@
 #define NOMINMAX
 
+#include <unordered_map>
 #include <string>
 #include "mwcas_benchmark.h"
 #include "MSQueue.h"
@@ -8,6 +9,7 @@
 using namespace pmwcas::benchmark;
 
 DEFINE_uint64(node_size, 1048576, "");
+DEFINE_uint64(queue_size, 0, "");
 DEFINE_uint64(queue_impl_type, 0, "");
 DEFINE_uint64(queue_op_type, 0, "");
 
@@ -71,14 +73,16 @@ struct MSQueueTestBase : public BaseMwCas {
         initMSQueue();
 
         orgQueueSize_ = getQueueSize();
-        std::cout << "orgQueueSize_:" << orgQueueSize_ << std::endl;
+        std::cout << "******************orgQueueSize_:" << orgQueueSize_ << "*****************" << std::endl;
 
         enqNum_ = 0;
         deqNum_ = 0;
+        recoverNum_ = 0;
 
         for(int i = 0; i < FLAGS_threads; i++) {
             threadIdOpNumMap_[i] = 0;
         }
+
         //for debug
         //MSQueue::initRecord();
     }
@@ -143,7 +147,7 @@ struct MSQueueTestBase : public BaseMwCas {
             QueueNode * pNode = (QueueNode *)((uintptr_t)nodePtr_ + getNodeSize()*i);
             if(pNode->isBusy_ == 1) {
                 busyNodeCnt++;
-                printOneNode(pNode);
+                //printOneNode(pNode);
             }
             else {
                 freeNodeCnt++;
@@ -215,6 +219,11 @@ struct MSQueueTestBase : public BaseMwCas {
 
             std::cout << "queueHead_:" << queueHead_ << ", head point to:" << (*queueHead_)
                 << ", queueTail_:" << queueTail_ << ", tail point to:" << (*queueTail_) << std::endl;
+
+            isNewQueue_ = true; 
+        }
+        else {
+            isNewQueue_ = false; 
         }
     }
     virtual QueueNode * genSentinelNode() = 0;
@@ -226,14 +235,32 @@ struct MSQueueTestBase : public BaseMwCas {
         auto s = MwCASMetrics::ThreadInitialize();
 	    RAW_CHECK(s.ok(), "Error initializing thread");
 
-        WaitForStart();
-
         if(getDescPool() != NULL) {
             getDescPool()->GetEpoch()->Protect();
         }
 
-        recover(thread_index);
-        
+        uint64_t revTime = 0;
+        if(isNewQueue_) {
+            for(int i = 0; i < FLAGS_queue_size; i++) {
+                enqueue(thread_index);
+            }
+        }
+        else {
+            uint64_t revBefore = Environment::Get()->NowMicros();
+            recover(thread_index);
+            revTime = Environment::Get()->NowMicros() - revBefore;
+        }
+
+        recoverNum_.fetch_add(1, std::memory_order_seq_cst);
+        while(recoverNum_.load() < FLAGS_threads);
+        orgQueueSize_ = getQueueSize();
+        LOG(ERROR) << "thread:" << thread_index << " after recover or enqueue " << " orgQueueSize_ " 
+            << orgQueueSize_  << std::endl;
+        LOG(ERROR) << "**************************thread " << thread_index << " recover time:" 
+            << revTime << " micro seconds ***************************" << std::endl;
+
+        WaitForStart();
+
         uint64_t n_success = 0;
         uint64_t n_enq = 0;
         uint64_t n_deq = 0;
@@ -263,6 +290,7 @@ struct MSQueueTestBase : public BaseMwCas {
 	            << ", n_enq:" << n_enq << ", n_deq:" << n_deq << std::endl;
         LOG(ERROR) << thread_index << ", total_success_: " << total_success_
 	            << ", enqNum_:" << enqNum_ << ", deqNum_:" << deqNum_ << std::endl;
+        
     }
 
     uint64_t getQueueSize() {
@@ -309,6 +337,10 @@ private:
 
     std::atomic<uint64_t> enqNum_;
     std::atomic<uint64_t> deqNum_;
+
+    std::atomic<uint64_t> recoverNum_;
+
+    bool isNewQueue_;
 
 public:
     std::atomic<uint64_t> orgQueueSize_;
@@ -388,16 +420,16 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_ << std::endl;
     }
 
-    void recover(size_t thread_index) {
+    virtual void recover(size_t thread_index) {
         recoverEnq(thread_index);
         recoverDeq(thread_index);
     }
 
-    void recoverEnq(size_t thread_index) {
+    virtual void recoverEnq(size_t thread_index) {
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
         QueueNode * enqNode = (*threadEnqAddr);
         if(enqNode != NULL) {
-            std::cout << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+            LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
                 << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
             doRecoverEnq(threadEnqAddr, enqNode);
         }
@@ -406,7 +438,6 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     void doRecoverEnq(QueueNode ** threadEnqAddr, QueueNode * enqNode) {
         if(enqNode->isBusy_ == 1) {
             rawEnque(threadEnqAddr);
-            orgQueueSize_++;
         }
         else {
             *threadEnqAddr = NULL;
@@ -414,20 +445,14 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         }
     }
 
-    void recoverDeq(size_t thread_index) {
+    virtual void recoverDeq(size_t thread_index) {
         QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
         QueueNode * deqNode = (*threadDeqAddr);
         if(deqNode != NULL) {
-            std::cout << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+            LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
                 << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
             doRecoverDeq(thread_index, threadDeqAddr, deqNode);
         }
-
-        /*uint64_t ** deqDataAddr = deqDataAddr_ + thread_index*8;
-        if(*deqDataAddr) {
-            *deqDataAddr = NULL;
-            NVRAM::Flush(sizeof(uint64_t *), (const void*)deqDataAddr);
-        }*/
     }
 
     void doRecoverDeq(size_t thread_index, QueueNode ** threadDeqAddr, QueueNode * deqNode) {
@@ -565,13 +590,13 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
             "MSQueuePMWCasV2Test::recover deq node and enq node not null at the same time");
 
         if(enqNode != NULL) {
-            std::cout << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+            LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
                 << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
             doRecoverEnq(threadEnqAddr, enqNode);
         }
 
         if(deqNode != NULL) {
-            std::cout << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+            LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
                 << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
             doRecoverDeq(thread_index, threadDeqAddr, deqNode);
         }
@@ -654,6 +679,48 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
     }
 
     void recover(size_t thread_index) {
+        std::unordered_map<OrgCasNode *, OrgCasNode **> enqNodeMap;
+        for(int i = 0; i < FLAGS_threads; i++) {
+            OrgCasNode ** threadEnqAddr = (OrgCasNode **)(threadEnqAddr_+thread_index*8);
+            OrgCasNode * enqNode = (OrgCasNode *)(*threadEnqAddr);
+            if(enqNode != NULL) {
+                enqNodeMap[enqNode] = threadEnqAddr;
+            }
+        }
+        
+        msQueue_->recover(enqNodeMap, thread_index);
+        
+        recoverEnq(thread_index);
+        recoverDeq(thread_index);
+    }
+
+    virtual void recoverEnq(size_t thread_index) {
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        QueueNode * enqNode = (*threadEnqAddr);
+        if(enqNode != NULL) {
+            LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
+            if(enqNode->isBusy_ == 1) {
+                msQueue_->enq((OrgCasNode **)threadEnqAddr);
+            }
+            else {
+                *(volatile QueueNode **)threadEnqAddr = NULL;
+            }
+        }
+    }
+
+    virtual void recoverDeq(size_t thread_index) {
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+        OrgCasNode * deqNode = (OrgCasNode *)(*threadDeqAddr);
+        if(deqNode != NULL) {
+            if(deqNode->del_thread_index_ == thread_index) {
+                LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+                cleanDeqNode(thread_index, deqNode);
+            }
+
+            * threadDeqAddr = NULL;
+        }
     }
 
     void enqueue(size_t thread_index, uint64_t * pData = NULL) {
@@ -691,6 +758,9 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
     }
 
     void cleanDeqNode(size_t thread_index, OrgCasNode * deqNode) {
+        if(deqNode->isBusy_ == 0) {
+            return;
+        }
         deqNode->isBusy_= 0;
         //set next to null, make enqueue cas succ again by another thread.
         //deqNode->next_ = NULL;
@@ -785,7 +855,6 @@ struct MSLogQueueTest : public MSQueueTestBase {
     }
 
     void recover(size_t thread_index) {
-
     }
 
     LogQueueNode * genSentinelNode() {

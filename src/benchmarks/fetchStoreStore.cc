@@ -99,6 +99,8 @@ bool FetchStoreStore::dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2,
 	descriptor->addEntryByPos((uint64_t*)(targetAddr2), oldVal2,
 			newVal2, FASASDescriptor::STORE_VAR_POS);
 
+    descriptor->setPrivateAddress((uint64_t*)(targetAddr2));
+
     return descriptor->process();
 }
 

@@ -92,6 +92,7 @@ bool FASASDescriptor::process()
 
     // Not visible to anyone else, persist before making the descriptor visible
     status_ = kStatusFailed;
+    isPrivateAddrSet_ = false;
 	NVRAM::Flush(sizeof(Descriptor), this);
 
     WordDescriptor* shareWd = &words_[SHARE_VAR_POS];
@@ -200,6 +201,9 @@ void FASASDescriptor::changePrivateValue() {
         *privateAddress_ = wd->old_value_|kDirtyFlag;
         persistTargetAddrValue(privateAddress_);
     }
+
+    isPrivateAddrSet_ = true;
+    NVRAM::Flush(sizeof(isPrivateAddrSet_), &isPrivateAddrSet_);
 }
 
 void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
@@ -303,7 +307,7 @@ void FASASDescriptorPool::recover(FASASDescriptor* fasasDesc) {
 
         in_progress_desc++;
 
-        if(desc.count_ == 1) {
+        if(desc.privateAddress_ != NULL) {
             recoverForFASAS(status, desc, redo_words, undo_words);
         }
         else if(desc.count_ == 2) {
@@ -320,35 +324,64 @@ void FASASDescriptorPool::recoverForFASAS(uint32_t status,
     FASASDescriptor & descriptor, uint64_t& redo_words,
     uint64_t& undo_words) {
 
-    auto& word = descriptor.words_[FASASDescriptor::SHARE_VAR_POS];
-    uint64_t val = Descriptor::CleanPtr(*word.address_);
-    if(status == Descriptor::kStatusSucceeded && val == (uint64_t)&descriptor) {
-        *(descriptor.privateAddress_) = word.old_value_;
-        NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
+    auto& shareWord = descriptor.words_[FASASDescriptor::SHARE_VAR_POS];
 
-        LOG(INFO) << "Applied old value " << std::hex << word.old_value_ << " to private address:" 
-            << std::hex << descriptor.privateAddress_;
-        std::cout << "Applied old value " << std::hex << word.old_value_ << " to private address:" 
-            << std::hex << descriptor.privateAddress_ << std::endl;
+    if((*shareWord.address_) & Descriptor::kDirtyFlag) {
+        (*shareWord.address_) &= ~Descriptor::kDirtyFlag;
+        shareWord.PersistAddress();
+    }
 
-        *(word.address_) = word.new_value_;
-        NVRAM::Flush(sizeof(uint64_t), (void*)word.address_);
+    uint64_t val = Descriptor::CleanPtr(*shareWord.address_);
+    if(status == Descriptor::kStatusSucceeded) {
+        if(descriptor.count_ == 2) {
+            auto & privateWD = descriptor.words_[FASASDescriptor::STORE_VAR_POS];
+            if((*(privateWD.address_)) & Descriptor::kDirtyFlag) {
+                (*privateWD.address_) &= ~Descriptor::kDirtyFlag;
+                privateWD.PersistAddress();
+            }
 
-        LOG(INFO) << "Applied new value " << std::hex << word.new_value_ << " to share address:" 
-           << std::hex << word.address_;
-        std::cout << "Applied new value " << std::hex << word.new_value_ << " to share address:" 
-           << std::hex << word.address_ << std::endl;
+            if(!descriptor.isPrivateAddrSet_) {
+                *(privateWD.address_) = privateWD.new_value_;
+                NVRAM::Flush(sizeof(uint64_t), (void*)privateWD.address_);
+                LOG(ERROR) << "Applied new value " << std::hex << privateWD.new_value_ << " to private address:" 
+                    << std::hex << privateWD.address_;
+                redo_words++;
+                descriptor.isPrivateAddrSet_ = true;
+                NVRAM::Flush(sizeof(descriptor.isPrivateAddrSet_), &descriptor.isPrivateAddrSet_);
+            }
+        }
+        else if (descriptor.count_ == 1) {
+            if((*(descriptor.privateAddress_)) & Descriptor::kDirtyFlag) {
+                (*(descriptor.privateAddress_)) &= ~Descriptor::kDirtyFlag;
+                NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
+            }
 
-        redo_words++;
+            if(!descriptor.isPrivateAddrSet_) {
+                *(descriptor.privateAddress_) = shareWord.old_value_;
+                NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
+                LOG(ERROR) << "Applied new value " << std::hex << shareWord.old_value_ << " to private address:" 
+                    << std::hex << descriptor.privateAddress_;
+                redo_words++;
+                descriptor.isPrivateAddrSet_ = true;
+                NVRAM::Flush(sizeof(descriptor.isPrivateAddrSet_), &descriptor.isPrivateAddrSet_);
+            }
+        }
+
+        if(val == (uint64_t)&descriptor) {
+            *(shareWord.address_) = shareWord.new_value_;
+            NVRAM::Flush(sizeof(uint64_t), (void*)shareWord.address_);
+
+            LOG(ERROR) << "Applied new value " << std::hex << shareWord.new_value_ << " to share address:" 
+               << std::hex << shareWord.address_;
+            redo_words++;
+        }
     }
     else if(status == Descriptor::kStatusFailed && val == (uint64_t)&descriptor) {
-        *(word.address_) = word.old_value_;
-        NVRAM::Flush(sizeof(uint64_t), (void*)word.address_);
+        *(shareWord.address_) = shareWord.old_value_;
+        NVRAM::Flush(sizeof(uint64_t), (void*)shareWord.address_);
 
-        LOG(INFO) << "Applied old value " << std::hex << word.old_value_ << " to share address:" 
-           << std::hex << word.address_;
-        std::cout << "Applied old value " << std::hex << word.old_value_ << " to share address:" 
-           << std::hex << word.address_ << std::endl;
+        LOG(ERROR) << "Applied old value " << std::hex << shareWord.old_value_ << " to share address:" 
+           << std::hex << shareWord.address_;
 
         undo_words++;
     }
@@ -361,14 +394,17 @@ void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
     if(status == Descriptor::kStatusSucceeded) {
         for(int w = 0; w < descriptor.count_; ++w) {
             auto& word = descriptor.words_[w];
+
+            if((*word.address_) & Descriptor::kDirtyFlag) {
+                (*word.address_) &= ~Descriptor::kDirtyFlag;
+                word.PersistAddress();
+            }
+
             uint64_t val = Descriptor::CleanPtr(*word.address_);
             if(val == (uint64_t)&descriptor) {
                 *word.address_ = word.new_value_;
                 word.PersistAddress();
-
-                std::cout << "Applied new value " << std::hex << word.new_value_ 
-                    << " at " << std::hex << word.address_ << " w:" << w << std::endl;
-                LOG(INFO) << "Applied new value " << std::hex << word.new_value_ 
+                LOG(ERROR) << "Applied new value " << std::hex << word.new_value_ 
                     << " at " << std::hex << word.address_ << " w:" << w;
 
                 redo_words++;
@@ -379,14 +415,16 @@ void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
         status == Descriptor::kStatusFailed) {
         for(int w = 0; w < descriptor.count_; ++w) {
             auto& word = descriptor.words_[w];
+            if((*word.address_) & Descriptor::kDirtyFlag) {
+                (*word.address_) &= ~Descriptor::kDirtyFlag;
+                word.PersistAddress();
+            }
+                        
             uint64_t val = Descriptor::CleanPtr(*word.address_);
             if(val == (uint64_t)&descriptor || val == (uint64_t)&word) {
                 *word.address_ = word.old_value_;
                 word.PersistAddress();
-            
-                std::cout << "Applied old value " << std::hex << word.old_value_ 
-                    << " at " << std::hex << word.address_ << " w:" << w << std::endl;
-                LOG(INFO) << "Applied old value " << std::hex << word.old_value_ 
+                LOG(ERROR) << "Applied old value " << std::hex << word.old_value_ 
                     << " at " << std::hex << word.address_ << " w:" << w;
 
                 undo_words++;
