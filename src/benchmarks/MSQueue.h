@@ -85,7 +85,7 @@ private:
     /*void  checkEnqNode(OrgCasNode ** threadEnqAddr, size_t threadCnt,
             OrgCasNode * node) ;*/
     void checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
-            OrgCasNode * node) ;
+            OrgCasNode * node, size_t thread_index) ;
     void checkEnqNodeFromDeqMap(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
             std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap);
     

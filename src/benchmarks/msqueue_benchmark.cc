@@ -254,8 +254,8 @@ struct MSQueueTestBase : public BaseMwCas {
         recoverNum_.fetch_add(1, std::memory_order_seq_cst);
         while(recoverNum_.load() < FLAGS_threads);
         orgQueueSize_ = getQueueSize();
-        LOG(ERROR) << "thread:" << thread_index << " after recover or enqueue " << " orgQueueSize_ " 
-            << orgQueueSize_  << std::endl;
+        //LOG(ERROR) << "thread:" << thread_index << " after recover or enqueue " << " orgQueueSize_ " 
+            //<< orgQueueSize_  << std::endl;
         LOG(ERROR) << "**************************thread " << thread_index << " recover time:" 
             << revTime << " micro seconds ***************************" << std::endl;
 
@@ -286,9 +286,9 @@ struct MSQueueTestBase : public BaseMwCas {
         enqNum_.fetch_add(n_enq, std::memory_order_seq_cst);
         deqNum_.fetch_add(n_deq, std::memory_order_seq_cst);
 
-        LOG(ERROR) << thread_index << ", n_success: " << threadIdOpNumMap_[thread_index]
+        LOG(INFO) << thread_index << ", n_success: " << threadIdOpNumMap_[thread_index]
 	            << ", n_enq:" << n_enq << ", n_deq:" << n_deq << std::endl;
-        LOG(ERROR) << thread_index << ", total_success_: " << total_success_
+        LOG(INFO) << thread_index << ", total_success_: " << total_success_
 	            << ", enqNum_:" << enqNum_ << ", deqNum_:" << deqNum_ << std::endl;
         
     }
@@ -678,25 +678,34 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
         return begNode;
     }
 
+    void printOneNode(QueueNode * nodeOrg, const char * info = "") {
+        OrgCasNode * node = (OrgCasNode *)(nodeOrg);
+        std::cout << "printOneNode node:" << node << ", pData_:" << node->pData_ << ", next_:" << node->next_
+            << ", poolNext_:" << node->poolNext_ << ", isBusy_:" << node->isBusy_ 
+            << ", del_thread_index_:" << node->del_thread_index_ << std::endl;
+    }
+
     void recover(size_t thread_index) {
         std::unordered_map<OrgCasNode *, OrgCasNode **> enqNodeMap;
         
         for(int i = 0; i < FLAGS_threads; i++) {
-            OrgCasNode ** threadEnqAddr = (OrgCasNode **)(threadEnqAddr_+thread_index*8);
+            OrgCasNode ** threadEnqAddr = (OrgCasNode **)(threadEnqAddr_+i*8);
             OrgCasNode * enqNode = (OrgCasNode *)(*threadEnqAddr);
             if(enqNode != NULL) {
+                //LOG(ERROR) << "enqNodeMap enqNode:" << enqNode << ", threadEnqAddr:" << threadEnqAddr;
                 enqNodeMap[enqNode] = threadEnqAddr;
             }
         }
 
         std::unordered_map<OrgCasNode *, OrgCasNode **> deqNodeMap;
-        for(int i = 0; i < FLAGS_threads; i++) {
-            OrgCasNode ** threadDeqAddr = (OrgCasNode **)(threadDeqAddr_+thread_index*8);
+        /*for(int i = 0; i < FLAGS_threads; i++) {
+            OrgCasNode ** threadDeqAddr = (OrgCasNode **)(threadDeqAddr_+i*8);
             OrgCasNode * deqNode = (OrgCasNode *)(*threadDeqAddr);
             if(deqNode != NULL) {
+                //LOG(ERROR) << "deqNodeMap deqNode:" << deqNode << ", threadDeqAddr:" << threadDeqAddr;
                 deqNodeMap[deqNode] = threadDeqAddr;
             }
-        }
+        }*/
         
         msQueue_->recover(enqNodeMap, deqNodeMap, thread_index);
 
@@ -706,13 +715,14 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
 
     virtual void recoverEnq(size_t thread_index) {
         QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
-        QueueNode * enqNode = (*threadEnqAddr);
+        OrgCasNode * enqNode = (OrgCasNode *)(*threadEnqAddr);
         if(enqNode != NULL) {
-            LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
-                << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
-
-            //the node canbe already be reclaimed
-            if(enqNode->isBusy_ == 1) {
+            //the node can already be reclaimed then busy is 0
+            //the node can already be deleted then del_thread_index is not -1
+            if(enqNode->isBusy_ == 1 && enqNode->del_thread_index_ == -1) {
+                LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                    << enqNode << " isBusy_" << enqNode->isBusy_ << ", del_thread_index_:"
+                    << enqNode->del_thread_index_ << std::endl;
                 msQueue_->enq((OrgCasNode **)threadEnqAddr);
             }
             else {
@@ -725,9 +735,10 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
         QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
         OrgCasNode * deqNode = (OrgCasNode *)(*threadDeqAddr);
         if(deqNode != NULL) {
-            if(deqNode->del_thread_index_ == thread_index) {
+            if(deqNode->del_thread_index_ == thread_index && deqNode->isBusy_ == 1) {
                 LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
-                << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+                    << deqNode << " isBusy_" << deqNode->isBusy_ << ", del_thread_index_:"
+                    << deqNode->del_thread_index_<< std::endl;
                 cleanDeqNode(thread_index, deqNode);
             }
 

@@ -73,37 +73,40 @@ void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> co
         std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap,
         size_t thread_index) 
 {
-    LOG(ERROR) << "thread_index:" << thread_index << " recover. enqNodeMap size:" << enqNodeMap.size()
-        << ", deqNodeMap size:" << deqNodeMap.size() << std::endl;
+    //LOG(ERROR) << "thread_index:" << thread_index << " recover. enqNodeMap size:" << enqNodeMap.size()
+        //<< ", deqNodeMap size:" << deqNodeMap.size() << std::endl;
 
     OrgCasNode * curNode = (OrgCasNode *)(*phead_);
     while(!isRecoverFinish_) {
-        checkEnqNode(enqNodeMap, curNode);
+        checkEnqNode(enqNodeMap, curNode, thread_index);
         OrgCasNode * next = (OrgCasNode *)curNode->next_;
 
         if(next == NULL) {
+            isRecoverFinish_ = true;
             break;
         }
         
         if(curNode->del_thread_index_ != -1) {
             if(*phead_ == curNode ) {
                 CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)curNode);
-                LOG(ERROR) << "change head to next. thread index:" << thread_index << std::endl;
+                LOG(ERROR) << "change head to next. thread index:" << thread_index << ", curNode:"
+                    <<curNode << ", next:" << next << std::endl;
             }
         }
 
         if(*ptail_ == curNode ) {
             CompareExchange64(ptail_, (QueueNode *)next, (QueueNode *)curNode);
-            LOG(ERROR) << "change tail to next. thread index:" << thread_index << std::endl;
+            LOG(ERROR) << "change tail to next. thread index:" << thread_index << ", curNode:"
+                << curNode << ", next:" << next << std::endl;
         }
         
         curNode  = next;
     }
 
-    if(!isRecoverFinish_) {
+    /*if(!isRecoverFinish_) {
         checkEnqNodeFromDeqMap(enqNodeMap, deqNodeMap);
         isRecoverFinish_ = true;
-    }
+    }*/
 }
 
 /*void MSQueueByOrgCas::checkEnqNode(OrgCasNode ** enqAddr, size_t threadCnt,
@@ -120,13 +123,16 @@ void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> co
 }*/
 
 void MSQueueByOrgCas::checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
-            OrgCasNode * node) 
+            OrgCasNode * node, size_t thread_index) 
 {
+    //LOG(ERROR) << "checkEnqNode. node:" << node << std::endl;
+
     std::unordered_map<OrgCasNode *, OrgCasNode **>::const_iterator enqNodeMapIt = enqNodeMap.find(node);
     if(enqNodeMapIt != enqNodeMap.end()) {
         OrgCasNode ** curEndAddr = enqNodeMapIt->second;
         CompareExchange64(curEndAddr, (OrgCasNode *)NULL, node);
-        LOG(ERROR) << "checkEnqNode set one node to null. curEndAddr:" << curEndAddr << std::endl;
+        LOG(ERROR) << "checkEnqNode set one node to null. thread_index:" << thread_index
+            << ", curEndAddr:" << curEndAddr << std::endl;
     }
 }
 
