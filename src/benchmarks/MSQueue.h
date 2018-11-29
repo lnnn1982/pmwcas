@@ -77,13 +77,17 @@ public:
     bool deq(OrgCasNode ** privateAddr, size_t thread_index);
 
     //void recover(OrgCasNode ** threadEnqAddr, size_t threadCnt, size_t thread_index);
-    void recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, size_t thread_index);
+    void recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, 
+        std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap,
+        size_t thread_index);
     
 private:
     /*void  checkEnqNode(OrgCasNode ** threadEnqAddr, size_t threadCnt,
             OrgCasNode * node) ;*/
     void checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
             OrgCasNode * node) ;
+    void checkEnqNodeFromDeqMap(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
+            std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap);
     
     volatile bool isRecoverFinish_;
 

@@ -69,15 +69,19 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
     }
 }
 
-void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, size_t thread_index) {
+void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, 
+        std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap,
+        size_t thread_index) 
+{
+    LOG(ERROR) << "thread_index:" << thread_index << " recover. enqNodeMap size:" << enqNodeMap.size()
+        << ", deqNodeMap size:" << deqNodeMap.size() << std::endl;
+
     OrgCasNode * curNode = (OrgCasNode *)(*phead_);
     while(!isRecoverFinish_) {
         checkEnqNode(enqNodeMap, curNode);
-
         OrgCasNode * next = (OrgCasNode *)curNode->next_;
+
         if(next == NULL) {
-            isRecoverFinish_ = true;
-            LOG(ERROR) << "isRecoverFinish_ set true. thread_index:" << thread_index << std::endl;
             break;
         }
         
@@ -94,6 +98,11 @@ void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> co
         }
         
         curNode  = next;
+    }
+
+    if(!isRecoverFinish_) {
+        checkEnqNodeFromDeqMap(enqNodeMap, deqNodeMap);
+        isRecoverFinish_ = true;
     }
 }
 
@@ -121,7 +130,21 @@ void MSQueueByOrgCas::checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode *
     }
 }
 
-
+void MSQueueByOrgCas::checkEnqNodeFromDeqMap(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap,
+            std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap) 
+{
+    std::unordered_map<OrgCasNode *, OrgCasNode **>::const_iterator enqNodeMapIt = enqNodeMap.begin();
+    for(; enqNodeMapIt != enqNodeMap.end(); enqNodeMapIt++) {
+        OrgCasNode * curNode = enqNodeMapIt->first;
+        std::unordered_map<OrgCasNode *, OrgCasNode **>::const_iterator deqNodeMapIt = deqNodeMap.find(
+            curNode);
+        if(deqNodeMapIt != deqNodeMap.end()) {
+            OrgCasNode ** curEndAddr = enqNodeMapIt->second;
+            CompareExchange64(curEndAddr, (OrgCasNode *)NULL, curNode);
+            LOG(ERROR) << "checkEnqNodeFromDeqMap set one node to null. curEndAddr:" << curEndAddr << std::endl;
+        }
+    }
+}
 
 
 
