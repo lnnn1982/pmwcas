@@ -89,15 +89,15 @@ void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> co
         if(curNode->del_thread_index_ != -1) {
             if(*phead_ == curNode ) {
                 CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)curNode);
-                LOG(ERROR) << "change head to next. thread index:" << thread_index << ", curNode:"
-                    <<curNode << ", next:" << next << std::endl;
+                //LOG(ERROR) << "change head to next. thread index:" << thread_index << ", curNode:"
+                    //<<curNode << ", next:" << next << std::endl;
             }
         }
 
         if(*ptail_ == curNode ) {
             CompareExchange64(ptail_, (QueueNode *)next, (QueueNode *)curNode);
-            LOG(ERROR) << "change tail to next. thread index:" << thread_index << ", curNode:"
-                << curNode << ", next:" << next << std::endl;
+            //LOG(ERROR) << "change tail to next. thread index:" << thread_index << ", curNode:"
+                //<< curNode << ", next:" << next << std::endl;
         }
         
         curNode  = next;
@@ -131,8 +131,8 @@ void MSQueueByOrgCas::checkEnqNode(std::unordered_map<OrgCasNode *, OrgCasNode *
     if(enqNodeMapIt != enqNodeMap.end()) {
         OrgCasNode ** curEndAddr = enqNodeMapIt->second;
         CompareExchange64(curEndAddr, (OrgCasNode *)NULL, node);
-        LOG(ERROR) << "checkEnqNode set one node to null. thread_index:" << thread_index
-            << ", curEndAddr:" << curEndAddr << std::endl;
+        //LOG(ERROR) << "checkEnqNode set one node to null. thread_index:" << thread_index
+            //<< ", curEndAddr:" << curEndAddr << std::endl;
     }
 }
 

@@ -255,16 +255,23 @@ struct MSQueueTestBase : public BaseMwCas {
             revTime = Environment::Get()->NowMicros() - revBefore;
         }
 
+        if(getDescPool() != NULL) {
+            getDescPool()->GetEpoch()->Unprotect();
+        }
+
         recoverNum_.fetch_add(1, std::memory_order_seq_cst);
         while(recoverNum_.load() < FLAGS_threads);
         orgQueueSize_ = getQueueSize();
-        //LOG(ERROR) << "thread:" << thread_index << " after recover or enqueue " << " orgQueueSize_ " 
-            //<< orgQueueSize_  << std::endl;
+
         LOG(ERROR) << "**************************thread " << thread_index << " recover time:" 
             << revTime << " micro seconds ***************************" << std::endl;
-
+        
         WaitForStart();
 
+        if(getDescPool() != NULL) {
+            getDescPool()->GetEpoch()->Protect();
+        }
+        
         uint64_t n_success = 0;
         uint64_t n_enq = 0;
         uint64_t n_deq = 0;
@@ -283,7 +290,7 @@ struct MSQueueTestBase : public BaseMwCas {
         if(getDescPool() != NULL) {
             getDescPool()->GetEpoch()->Unprotect();
         }
-        
+
         (threadIdOpNumMap_[thread_index]) = n_success;
 
         total_success_.fetch_add(threadIdOpNumMap_[thread_index], std::memory_order_seq_cst);
@@ -594,14 +601,14 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
             "MSQueuePMWCasV2Test::recover deq node and enq node not null at the same time");
 
         if(enqNode != NULL) {
-            LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
-                << enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
+            //LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                //<< enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
             doRecoverEnq(threadEnqAddr, enqNode);
         }
 
         if(deqNode != NULL) {
-            LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
-                << deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+            //LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                //<< deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
             doRecoverDeq(thread_index, threadDeqAddr, deqNode);
         }
     }
@@ -724,9 +731,9 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
             //the node can already be reclaimed then busy is 0
             //the node can already be deleted then del_thread_index is not -1
             if(enqNode->isBusy_ == 1 && enqNode->del_thread_index_ == -1) {
-                LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
-                    << enqNode << " isBusy_" << enqNode->isBusy_ << ", del_thread_index_:"
-                    << enqNode->del_thread_index_ << std::endl;
+                //LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                    //<< enqNode << " isBusy_" << enqNode->isBusy_ << ", del_thread_index_:"
+                    //<< enqNode->del_thread_index_ << std::endl;
                 msQueue_->enq((OrgCasNode **)threadEnqAddr);
             }
             else {
@@ -740,9 +747,9 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
         OrgCasNode * deqNode = (OrgCasNode *)(*threadDeqAddr);
         if(deqNode != NULL) {
             if(deqNode->del_thread_index_ == thread_index && deqNode->isBusy_ == 1) {
-                LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
-                    << deqNode << " isBusy_" << deqNode->isBusy_ << ", del_thread_index_:"
-                    << deqNode->del_thread_index_<< std::endl;
+                //LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                    //<< deqNode << " isBusy_" << deqNode->isBusy_ << ", del_thread_index_:"
+                    //<< deqNode->del_thread_index_<< std::endl;
                 cleanDeqNode(thread_index, deqNode);
             }
 

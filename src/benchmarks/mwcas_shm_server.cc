@@ -33,6 +33,7 @@ int main(int argc, char* argv[]) {
   google::ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_log_dir = "./";
+  FLAGS_threads = 64;
   
   LOG(INFO) << "Array size: " << FLAGS_array_size;
   LOG(INFO) << "Descriptor pool size: " << FLAGS_descriptor_pool_size;
