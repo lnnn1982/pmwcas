@@ -8,7 +8,8 @@
 
 using namespace pmwcas::benchmark;
 
-DEFINE_uint64(node_size, 1048576, "");
+//DEFINE_uint64(node_size, 1048576, "");
+DEFINE_uint64(node_size, 16777216, "");
 DEFINE_uint64(queue_size, 0, "");
 DEFINE_uint64(queue_impl_type, 0, "");
 DEFINE_uint64(queue_op_type, 0, "");
@@ -110,25 +111,28 @@ struct MSQueueTestBase : public BaseMwCas {
         uint32_t noodThread = FLAGS_node_size / FLAGS_threads;
         uint32_t busyNodeCnt = 0;
         uint32_t freeNodeCnt = 0;
+        int lastTimeNum = 0;
         for(uint32_t i = 0; i < FLAGS_node_size; ++i) {
             //change the ptr to a unsigned long number then add offset to that number
             QueueNode * pNode = (QueueNode *)((uintptr_t)nodePtr_ + getNodeSize()*i);
             if(pNode->isBusy_ == 1) {
                 busyNodeCnt++;
-                continue;
             }
+            else {
+                EntryNodePool * pool = nodePoolTbl_ + thread;
+                pNode->poolNext_ = (QueueNode *)(pool->free_list);
+                pool->free_list = pNode;
+                freeNodeCnt++;
 
-            EntryNodePool * pool = nodePoolTbl_ + thread;
-            pNode->poolNext_ = (QueueNode *)(pool->free_list);
-            pool->free_list = pNode;
-            freeNodeCnt++;
-
-            if(pool->free_list_tail == NULL) {
-                pool->free_list_tail = pNode;
+                if(pool->free_list_tail == NULL) {
+                    pool->free_list_tail = pNode;
+                }
             }
 
             if((i + 1) % noodThread == 0) {
-                std::cout << "initQueueNodePool node count:" << std::dec << freeNodeCnt << ", thread:" << thread << std::endl;
+                std::cout << "initQueueNodePool node count:" << std::dec << (freeNodeCnt-lastTimeNum) 
+                    << ", thread:" << thread << std::endl;
+                lastTimeNum = freeNodeCnt;
                 thread++;
             }
         }
@@ -241,7 +245,7 @@ struct MSQueueTestBase : public BaseMwCas {
 
         uint64_t revTime = 0;
         if(isNewQueue_) {
-            for(int i = 0; i < FLAGS_queue_size; i++) {
+            for(int i = 0; i < (FLAGS_queue_size/FLAGS_threads)+1; i++) {
                 enqueue(thread_index);
             }
         }
@@ -841,6 +845,7 @@ struct MSLogQueueTest : public MSQueueTestBase {
         uint32_t thread = 0;
         uint32_t logThread = FLAGS_node_size / FLAGS_threads;
         uint32_t i = 0;
+        uint32_t lastTimeNum = 0;
         for(; i < FLAGS_node_size; ++i) {
             LogEntry * pLog = logEntryPtr_+i;
             EntryNodePool * logPool = logEntryTbl_ + thread;
@@ -852,8 +857,9 @@ struct MSLogQueueTest : public MSQueueTestBase {
             }
             
             if((i + 1) % logThread == 0) {
-                std::cout << "initQueueNodePool log count:" << std::dec << i << ", thread:" << thread << std::endl;
+                std::cout << "initQueueNodePool log count:" << std::dec << (i+1-lastTimeNum) << ", thread:" << thread << std::endl;
                 thread++;
+                lastTimeNum = i+1;
             }
         }
 

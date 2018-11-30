@@ -15,6 +15,8 @@ using namespace pmwcas::benchmark;
 DEFINE_uint64(array_size, 5000, "size of the word array for mwcas benchmark");
 DEFINE_string(benchmarks, "MSQUEUE", "");
 DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
+//DEFINE_uint64(node_size, 1048576, "");
+DEFINE_uint64(node_size, 16777216, "");
 
 using namespace pmwcas;
 
@@ -59,8 +61,8 @@ int main(int argc, char* argv[]) {
   else if(benchmark == "MSQUEUE") {
       size = sizeof(DescriptorPool::Metadata) +
                   sizeof(Descriptor) * FLAGS_descriptor_pool_size;  // descriptors area
-      size += 128*FLAGS_descriptor_pool_size; //queue node size
-      size += 64*FLAGS_descriptor_pool_size; //log node size
+      size += 128*FLAGS_node_size; //queue node size
+      size += 64*FLAGS_node_size; //log node size
       size += 64*2; //queue head tail size
       size += FLAGS_threads * 1024; //extra size
 
