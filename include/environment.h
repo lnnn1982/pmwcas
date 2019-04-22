@@ -166,9 +166,10 @@ class IEnvironment {
   /// Returns the number of nano-seconds since some fixed point in time. Only
   /// useful for computing deltas of time in one run.
   /// Default implementation simply relies on NowMicros
-  virtual uint64_t NowNanos() {
-    return NowMicros() * 1000;
-  }
+  //virtual uint64_t NowNanos() {
+    //return NowMicros() * 1000;
+  //}
+  virtual uint64_t NowNanos() = 0;
 
   /// Return the unique id of the caller thread.
   uint64_t GetThreadId() {

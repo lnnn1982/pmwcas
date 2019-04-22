@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <iostream>
 
 #include <glog/logging.h>
 #include <glog/raw_logging.h>
@@ -178,7 +179,10 @@ class TlsAllocator : public IAllocator {
         // Slab full or not initialized yet
         auto node = numa_node_of_cpu(sched_getcpu());
         uint64_t off = __atomic_fetch_add(&tls_allocator->numa_allocated_[node], kSlabSize, __ATOMIC_SEQ_CST);
+        //std::cout << "Slab allocate numa node:" << node << ", off:" << off << std::endl;
         memory = tls_allocator->numa_memory_[node] + off;
+        //uint64_t numMemory = (uint64_t)memory;
+        //std::cout << "1111111111111memory:" << numMemory << std::endl;
         LOG_IF(FATAL, off >= tls_allocator->kNumaMemorySize) << "Not enough memory";
         allocated = 0;
         goto retry;
@@ -226,6 +230,7 @@ class TlsAllocator : public IAllocator {
  public:
   TlsAllocator() {
     int nodes = numa_max_node() + 1;
+    std::cout << "numa_max_node nodes:" << nodes << std::endl;
     numa_memory_ = (char**)malloc(sizeof(char*) * nodes);
     numa_allocated_ = (uint64_t*)malloc(sizeof(uint64_t) * nodes);
     for(int i = 0; i < nodes; ++i) {
@@ -233,6 +238,8 @@ class TlsAllocator : public IAllocator {
       numa_memory_[i] = (char *)mmap(
           nullptr, kNumaMemorySize, PROT_READ | PROT_WRITE,
           MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_POPULATE, -1, 0);
+      uint64_t umem = (uint64_t)numa_memory_[i];
+      std::cout << "numa_memory_ i:" << std::hex << i << ", umem :" << umem  << std::endl;
 
       numa_allocated_[i] = 0;
     }

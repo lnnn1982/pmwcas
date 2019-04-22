@@ -4,7 +4,7 @@ namespace pmwcas {
 
 thread_local uint64_t FetchStoreStore::epochs_ = 0;
 
-void FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr, 
+uint64_t FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAddr, 
 	   uint64_t newval, DescriptorPool* descPool)
 {
     /*if(targetAddr == storeAddr) {
@@ -60,7 +60,7 @@ bool FetchStoreStore::dcasByOrgMwcas(CasPtr* targetAddr1, CasPtr* targetAddr2,
     return descriptor->MwCAS();
 }
 
-void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
+uint64_t FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
     while(1) {
@@ -79,7 +79,7 @@ void FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr,
 		if(descriptor->process()) {
             RAW_CHECK(targetValue == privateAddr->getValueOfPrivateVar(),
                 "old share value not equal to private value");
-			break;
+			return targetValue;
 		}
 	}
 }
@@ -104,7 +104,7 @@ bool FetchStoreStore::dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2,
     return descriptor->process();
 }
 
-void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
+uint64_t FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
     while(1) {
@@ -129,7 +129,7 @@ void FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* store
             RAW_CHECK(targetValue == storeAddr->getValueProtectedForMwcas(
                 FASASDescriptor::STORE_VAR_POS), 
                 "old share value not equal to private value");
-			break;
+			return targetValue;
 		}
 	}
 

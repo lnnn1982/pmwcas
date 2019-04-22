@@ -8,6 +8,7 @@
 #include "mwcas_benchmark.h"
 #include "fetchStoreStore.h"
 #include "RecoverMutex.h"
+#include "LinearCheckerLogWriter.h"
 
 #include "util/core_local.h"
 #include "util/random_number_generator.h"
@@ -210,6 +211,7 @@ struct MwCas : public BaseMwCas {
   unique_ptr_t<CasPtr> test_array_guard_;
   DescriptorPool* descriptor_pool_;
 
+
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
@@ -222,6 +224,16 @@ struct BaseFASASTest : public BaseMwCas {
 	RandomNumberGenerator rng(FLAGS_seed + thread_index, 0, FLAGS_array_size);
     DescriptorPool* descPool = getDescPool();
 
+    LinearCheckerLogger::LogWriter * logWriter = NULL;
+    //unsigned int not_used = 0;
+    if(FLAGS_enable_linearcheck_log) {
+      std::string logFileName = genLinearCheckLogFileName(thread_index);
+      logWriter = new LinearCheckerLogger::LogWriter(logFileName, true);
+
+      LOG(ERROR) << "need to record linear checker log. thread_index:" << thread_index 
+        << ", logFileName:" << logFileName;
+    }
+
     WaitForStart();
 
     FetchStoreStore fetchStoreStore;
@@ -232,6 +244,10 @@ struct BaseFASASTest : public BaseMwCas {
 		
 	uint64_t n_success = 0;
 	uint64_t newValue = 0;
+    if(logWriter != NULL) {
+        newValue = 1+thread_index;
+    }
+
     while(!IsShutdown()) {     
 	  /*if(++epochs == kEpochThreshold) {
 	    descPool->GetEpoch()->Unprotect();
@@ -240,8 +256,34 @@ struct BaseFASASTest : public BaseMwCas {
       }*/
 
       uint64_t targetIdx = rng.Generate(FLAGS_array_size);
-      doFASAS(targetIdx, thread_index, newValue, fetchStoreStore);
-      newValue += 4;
+      if(logWriter != NULL) {
+        LinearCheckerLogger::FetchStoreLog log(std::to_string(thread_index),
+             //__rdtscp(&not_used) -startLogTime_, 
+             Environment::Get()->NowNanos() -startLogTime_,
+             LinearCheckerLogger::LClog::INVOKE_LOG);
+        log.addOneAddrData(std::to_string(targetIdx), std::to_string(newValue));
+        log.genContent();
+        logWriter->writeLog(log);
+      }
+      
+      uint64_t oldValue = doFASAS(targetIdx, thread_index, newValue, fetchStoreStore);
+      if(logWriter != NULL) {
+        LinearCheckerLogger::FetchStoreLog log(std::to_string(thread_index),
+            //__rdtscp(&not_used) -startLogTime_,
+            Environment::Get()->NowNanos() -startLogTime_,
+            LinearCheckerLogger::LClog::RESPONSE_LOG);
+        log.addOneAddrData(std::to_string(targetIdx), std::to_string(oldValue));
+        log.genContent();
+        logWriter->writeLog(log);
+      }
+      
+      if(logWriter != NULL) {
+        newValue += FLAGS_threads;
+      }
+      else {
+        newValue += 4;
+      }
+      
 	  n_success += 1;
     }
 
@@ -252,10 +294,27 @@ struct BaseFASASTest : public BaseMwCas {
 	            n_success << ", " << n << ", total_success_:" << total_success_;
   }
 
+  std::string genLinearCheckLogFileName(size_t thread_index) {
+    std::ostringstream oss;
+    //oss << "/tmp/";
+    oss << linearCheckerLogNamePrefix_ << "_LocSize_" << FLAGS_array_size << "_threadSize_"
+        << FLAGS_threads << "_threadId_" << thread_index << ".log";
+    return oss.str();
+  }
 
-  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+  virtual uint64_t doFASAS(uint64_t targetIdx, size_t thread_index,
     uint64_t newValue, FetchStoreStore & fetchStoreStore) = 0;
 
+  void initLinearCheckerLog(std::string const & fileNamePrefix) {
+    linearCheckerLogNamePrefix_ = fileNamePrefix;
+    //unsigned int not_used = 0;
+    //startLogTime_ =  __rdtscp(&not_used);
+    startLogTime_ = Environment::Get()->NowNanos();
+    std::cout <<  std::dec << "startLogTime_:" << startLogTime_ << std::endl;
+  }
+
+  std::string linearCheckerLogNamePrefix_;
+  unsigned long long startLogTime_;
 };
 
  
@@ -273,6 +332,10 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
                     sizeof(Descriptor) * FLAGS_descriptor_pool_size +  // descriptors area
                     sizeof(CasPtr) * FLAGS_array_size + // share data area
                     sizeof(CasPtr) * FLAGS_threads;  // private data area
+    std::cout << "metaData size:" << sizeof(DescriptorPool::Metadata) << ", descriptor size:"
+        << sizeof(Descriptor) * FLAGS_descriptor_pool_size << ", array size:"
+        << sizeof(CasPtr) * FLAGS_array_size << ", thread size:"
+        << sizeof(CasPtr) * FLAGS_threads << std::endl;
     SharedMemorySegment* segment = initSharedMemSegment(segname, size);
 
     shareArrayPtr_ = (CasPtr*)((uintptr_t)segment->GetMapAddress() +
@@ -310,6 +373,8 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
     for(uint32_t i = 0; i < FLAGS_threads; ++i) {
       privateArrayPtr_[i] = uint64_t(0);
     }
+
+    initLinearCheckerLog("FSOrgPMWCAS");
   }
   
   void initDescriptorPool(SharedMemorySegment* segment)
@@ -330,15 +395,19 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
     return descPool_;
   }
 
-  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+  virtual uint64_t doFASAS(uint64_t targetIdx, size_t thread_index,
           uint64_t newValue, FetchStoreStore & fetchStoreStore) 
   {
     CasPtr* targetAddress = reinterpret_cast<CasPtr*>(&(shareArrayPtr_[targetIdx])); 
 	CasPtr* storeAddress = reinterpret_cast<CasPtr*>(&privateArrayPtr_[thread_index]);
-	fetchStoreStore.processByOrgMwcas(targetAddress, storeAddress, newValue, descPool_);
+	return fetchStoreStore.processByOrgMwcas(targetAddress, storeAddress, newValue, descPool_);
   }
 	
   void Teardown() {
+    if(FLAGS_enable_linearcheck_log) {
+      return;
+    }
+      
     for(uint32_t i = 0; i < FLAGS_array_size; i++) {
       RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
       LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)shareArrayPtr_[i];
@@ -413,6 +482,8 @@ struct FASASTest : public BaseFASASTest {
     for(uint32_t i = 0; i < FLAGS_threads; ++i) {
       privateArrayPtr_[i] = uint64_t(0);
     }
+
+    initLinearCheckerLog("FSNew");
   }
 
   void initDescriptorPool(SharedMemorySegment* segment)
@@ -429,16 +500,16 @@ struct FASASTest : public BaseFASASTest {
       FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
   }
 
-  virtual void doFASAS(uint64_t targetIdx, size_t thread_index,
+  virtual uint64_t doFASAS(uint64_t targetIdx, size_t thread_index,
           uint64_t newValue, FetchStoreStore & fetchStoreStore) 
   {
     FASASCasPtr* targetAddress = reinterpret_cast<FASASCasPtr*>(&(shareArrayPtr_[targetIdx])); 
 	FASASCasPtr* storeAddress = reinterpret_cast<FASASCasPtr*>(&(privateArrayPtr_[thread_index]));
     if(FLAGS_FASAS_BASE_TYPE == 1) {
-     fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
+      return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
     }
     else {
-      fetchStoreStore.processByMwcas(targetAddress, storeAddress, newValue, fasasDescPool_);
+      return fetchStoreStore.processByMwcas(targetAddress, storeAddress, newValue, fasasDescPool_);
     }
   }
 
@@ -447,6 +518,10 @@ struct FASASTest : public BaseFASASTest {
   }       
 	
   void Teardown() {
+    if(FLAGS_enable_linearcheck_log) {
+      return;
+    }
+    
     for(uint32_t i = 0; i < FLAGS_array_size; i++) {
       RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
       LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)shareArrayPtr_[i];
@@ -458,6 +533,7 @@ struct FASASTest : public BaseFASASTest {
       RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[i]), "private variable Wrong value");
       RAW_CHECK((uint64_t)privateArrayPtr_[i] % 4 == 0, "private value not multi of 4");
     }
+
   }
 
 	

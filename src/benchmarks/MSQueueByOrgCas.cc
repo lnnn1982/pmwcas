@@ -48,7 +48,12 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
                 }
             }
             else {
-                if(first->del_thread_index_ != -1) {
+                if(first->del_thread_index_ != -1 && first == (*phead_)) {
+                    NVRAM::Flush(sizeof(first->del_thread_index_), 
+                        (const void*)(&first->del_thread_index_));
+                    if(first == (*phead_)) {
+                        CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
+                    }
                     continue;
                 }
                 
@@ -57,12 +62,21 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
             
                 if(CompareExchange64(&first->del_thread_index_, thread_index, (size_t)-1) == -1) {
                     NVRAM::Flush(sizeof(first->del_thread_index_), (const void*)(&first->del_thread_index_));
-                    CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
+                    if(first == (*phead_)) {
+                        CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
+                    }
                     //LOG(ERROR) << "deq suc thread_index " << thread_index;
                     return true;
                 }
                 else {
-                    CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
+                    if(first == (*phead_)) {
+                        NVRAM::Flush(sizeof(first->del_thread_index_), 
+                            (const void*)(&first->del_thread_index_));
+                        if(first == (*phead_)) {
+                            CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
+                        }
+                    }
+
                 }
             }
         }

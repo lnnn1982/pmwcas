@@ -37,7 +37,8 @@ uint64_t LinuxEnvironment::NowNanos() {
   memset(&ts, 0, sizeof(ts));
   clock_gettime(CLOCK_REALTIME, &ts);
   uint64_t ns = ts.tv_sec * 1000000000LL + ts.tv_nsec;
-  return ns / 1000 + (ns % 1000 >= 500);
+  //return ns / 1000 + (ns % 1000 >= 500);
+  return ns;
 }
 
 /// Returns the core count on the test machine

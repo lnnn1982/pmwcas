@@ -29,11 +29,12 @@ DEFINE_uint64(seconds, 30, "default time to run a benchmark");
 DEFINE_uint64(metrics_dump_interval, 0, "if greater than 0, the benchmark "
               "driver dumps metrics at this fixed interval (in seconds)");
 DEFINE_int32(affinity, 1, "affinity to use in scheduling threads");
-DEFINE_uint64(descriptor_pool_size, 1048576, "number of total descriptors");
+DEFINE_uint64(descriptor_pool_size, 4194304, "number of total descriptors");
 DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
     " descriptors and data (for persistent MwCAS only)");
 DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
     " operations");
+DEFINE_bool(enable_linearcheck_log, false, "whether to enable recording logs for linear checker");
 
 #ifdef PMEM
 DEFINE_uint64(write_delay_ns, 0, "NVRAM write delay (ns)");

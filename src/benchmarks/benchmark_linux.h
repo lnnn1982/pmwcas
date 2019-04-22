@@ -8,6 +8,7 @@
 #include <vector>
 #include <deque>
 #include <thread>
+#include <iostream>
 
 #include "common/environment_internal.h"
 #include "util/macros.h"
@@ -56,6 +57,7 @@ class Benchmark {
                     uint64_t dump_id, bool final_dump) {
     MARK_UNREFERENCED(thread_count);
     MARK_UNREFERENCED(run_ticks);
+    
     printf("> Benchmark %lu Dump %lu\n", dump_id,
            final_dump ? ~0lu : dump_count_);
     ++dump_count_;
