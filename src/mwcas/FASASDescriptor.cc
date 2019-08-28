@@ -6,27 +6,39 @@
 namespace pmwcas {
 
 FASASDescriptor::FASASDescriptor(DescriptorPartition* partition)
-    : Descriptor(partition), privateAddress_(nullptr) {
+    : BaseDescriptor(partition), privateAddress_(nullptr) {
+    privateAddress_ = nullptr;
+    opType_ = FASASOp;
+    //status_ = FailedStatus;
+    //isPrivateAddrSet_ = false;
+    memset(&word_, 0, sizeof(BaseDescriptor::BaseWordDescriptor));
 }
 
-void FASASDescriptor::addEntryByPos(uint64_t* addr, uint64_t oldval, uint64_t newval,
-	 int insertpos, uint32_t recycle_policy) 
+void FASASDescriptor::Initialize() {
+    //privateAddress_ needs to be first to clear becuase it is used in recover
+    privateAddress_ = nullptr;
+    next_ptr_ = nullptr;
+    opType_ = FASASOp;
+    //status_ = FailedStatus;
+    //isPrivateAddrSet_ = false;
+    memset(&word_, 0, sizeof(BaseDescriptor::BaseWordDescriptor));
+}
+
+void FASASDescriptor::DeallocateMemory() {}
+
+void FASASDescriptor::addSharedWord(uint64_t* addr, uint64_t oldval, uint64_t newval) 
 {
 	// IsProtected() checks are quite expensive, use DCHECK instead of RAW_CHECK.
     DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());
-    DCHECK(IsCleanPtr(oldval));
-    DCHECK(IsCleanPtr(newval) || newval == kNewValueReserved);
+    DCHECK(BaseDescriptor::IsCleanPtr(oldval));
+    DCHECK(BaseDescriptor::IsCleanPtr(newval));
 
-    words_[insertpos].address_ = addr;
-    words_[insertpos].old_value_ = oldval;
-    words_[insertpos].new_value_ = newval;
-    words_[insertpos].status_address_ = &status_;
-    words_[insertpos].recycle_policy_ = recycle_policy;
-
-    count_++;
+    word_.address_ = addr;
+    word_.old_value_ = oldval;
+    word_.new_value_ = newval;
 }
 
-bool FASASDescriptor::processByMwcas(uint32_t calldepth, uint32_t processPos) 
+/*bool FASASDescriptor::processByMwcas(uint32_t calldepth, uint32_t processPos) 
 {
     DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());
 
@@ -83,7 +95,7 @@ retry_entry:
     } else {
 	    return status_ == kStatusSucceeded;
     }
-}
+}*/
 
 //support both fetch store store and dcas
 bool FASASDescriptor::process()
@@ -91,42 +103,40 @@ bool FASASDescriptor::process()
     DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());
 
     // Not visible to anyone else, persist before making the descriptor visible
-    status_ = kStatusFailed;
-    isPrivateAddrSet_ = false;
-	NVRAM::Flush(sizeof(Descriptor), this);
+    //status_ = FailedStatus;
+    //isPrivateAddrSet_ = false;
+	NVRAM::Flush(sizeof(FASASDescriptor), this);
 
-    WordDescriptor* shareWd = &words_[SHARE_VAR_POS];
-    if(addDescriptorToShareVar() != shareWd->old_value_) {
-        privateAddress_ = nullptr;
-        return Cleanup();
+    if(addDescriptorToShareVar() != word_.old_value_) {
+        return Cleanup(false);
     }
 
-    uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
-    persistTargetFieldsStatus(descptr, kStatusSucceeded, kStatusFailed);
+    persistTargetAddrValue(word_.address_);
+    persistSuccStatus();
 
-    changePrivateValue();
+    //the order can't change. When set private value, make sure status is already set.
     changeShareValue();
+    changePrivateValueSucc();
 
-    privateAddress_ = nullptr;
-    return Cleanup();
+    return Cleanup(true);
 }
 
 void FASASDescriptor::helpProcess() {
-    uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
-    persistTargetFieldsStatus(descptr, kStatusSucceeded, kStatusFailed);
+    persistTargetAddrValue(word_.address_);
+    persistSuccStatus();
+
     changeShareValue();
 }
 
 uint64_t FASASDescriptor::addDescriptorToShareVar()
 {
-    WordDescriptor* wd = &words_[SHARE_VAR_POS];
-    uint64_t descptr = SetFlags(this, kMwCASFlag | kDirtyFlag);
+    uint64_t descptr = BaseDescriptor::SetFlags(this, BaseDescriptor::kMwCASFlag | BaseDescriptor::kDirtyFlag);
 
 retry:
-    uint64_t ret = CompareExchange64(wd->address_, descptr, wd->old_value_);
-    if(IsMwCASDescriptorPtr(ret)) {
+    uint64_t ret = CompareExchange64(word_.address_, descptr, word_.old_value_);
+    if(BaseDescriptor::IsMwCASDescriptorPtr(ret)) {
 #ifndef FETCH_WAIT
-        FASASDescriptor* otherMWCAS = (FASASDescriptor*)CleanPtr(ret);
+        FASASDescriptor* otherMWCAS = (FASASDescriptor*)BaseDescriptor::CleanPtr(ret);
         otherMWCAS->helpProcess();
         MwCASMetrics::AddHelpAttempt();
 #endif
@@ -136,50 +146,16 @@ retry:
     return  ret;
 }
 
-void FASASDescriptor::persistTargetFieldsStatus(uint64_t descptr, uint32_t my_status,
-    uint32_t orgStatus)
-{
-    // Persist all target fields if we successfully installed mwcas descriptor on
-    // all fields.
-    if(my_status == kStatusSucceeded) {
-	    for (uint32_t i = 0; i < count_; ++i) {
-	        WordDescriptor* wd = &words_[i];
-	        uint64_t val = *wd->address_;
-            //avoid multiple persist
-	        if(val == descptr) {
-		        wd->PersistAddress();
-		        CompareExchange64(wd->address_, descptr & ~kDirtyFlag, descptr);
-	        }
-	    }
-    }
-
-    // Switch to the final state, the MwCAS concludes after this point
-    CompareExchange32(&status_, my_status | kStatusDirtyFlag, orgStatus);
-
-    // Now the MwCAS is concluded - status is either succeeded or failed, and
-    // no observers will try to help finish it, so do a blind flush and reset
-    // the dirty bit.
-    //RAW_CHECK((status_ & ~kStatusDirtyFlag) != kStatusUndecided, "invalid status");
-    auto status = status_;
-    if(status & kStatusDirtyFlag) {
-	    PersistStatus();
-	    CompareExchange32(&status_, status & ~kStatusDirtyFlag, status);
-    }
-    // No need to flush again, recovery does not care about the dirty bit
-}
-
-
 void FASASDescriptor::changeShareValue() {
-    WordDescriptor* wd = &words_[SHARE_VAR_POS];
-	uint64_t val = wd->new_value_|kDirtyFlag;
+	uint64_t val = word_.new_value_|kDirtyFlag;
 
     uint64_t descptr = SetFlags(this, kMwCASFlag);
-    uint64_t addrVal = *(wd->address_);
+    uint64_t addrVal = *(word_.address_);
     if(addrVal == descptr) {
-        CompareExchange64(wd->address_, val, descptr);
+        CompareExchange64(word_.address_, val, descptr);
     }
 
-    persistTargetAddrValue(wd->address_);
+    persistTargetAddrValue(word_.address_);
 }
 
 void FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
@@ -190,23 +166,56 @@ void FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
     }
 }
 
-void FASASDescriptor::changePrivateValue() {
-    if(count_ > 1) {
-        WordDescriptor* wd = &words_[STORE_VAR_POS];
-	    *(wd->address_) = wd->new_value_|kDirtyFlag;
-        persistTargetAddrValue(wd->address_);
-    }
-    else {
-        WordDescriptor* wd = &words_[SHARE_VAR_POS];
-        *privateAddress_ = wd->old_value_|kDirtyFlag;
-        persistTargetAddrValue(privateAddress_);
+void FASASDescriptor::persistSuccStatus() {
+    uint64_t cleanPrivateAddr = (uint64_t)getPrivateAddress();
+    uint64_t dirtyStatusAddr = cleanPrivateAddr|StatusFlg|StatusDirtyFlg;
+    // Switch to the final state, the MwCAS concludes after this point
+    if((uint64_t)privateAddress_ == cleanPrivateAddr) {
+        CompareExchange64((uint64_t *)&privateAddress_, 
+            dirtyStatusAddr, cleanPrivateAddr);
     }
 
-    isPrivateAddrSet_ = true;
-    NVRAM::Flush(sizeof(isPrivateAddrSet_), &isPrivateAddrSet_);
+    if(isStatusDirty() == 1) {
+	    NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
+	    CompareExchange64((uint64_t *)&privateAddress_, 
+	       cleanPrivateAddr|StatusFlg, dirtyStatusAddr);
+    }
 }
 
-void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
+void FASASDescriptor::changePrivateValueSucc() {
+    uint64_t * privateAddrss = getPrivateAddress();
+    if(isRecoverCAS(opType_)) {
+        *privateAddrss = 1;
+    }
+    else if(isDoubleCAS(opType_)) {
+        *privateAddrss = getDCASValue(opType_);
+    }
+    else {
+        *privateAddrss = word_.old_value_;
+    }
+
+    NVRAM::Flush(sizeof(uint64_t), (void*)privateAddrss);
+
+    uint64_t tmpPrivateAddr = (uint64_t)(privateAddress_);
+    CompareExchange64((uint64_t *)&privateAddress_, 
+	       tmpPrivateAddr|IsPrivateValueSetFlg, tmpPrivateAddr);
+
+    NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
+}
+
+bool FASASDescriptor::Cleanup(bool isSuc) {
+
+  if(isSuc) {
+    MwCASMetrics::AddSucceededUpdate();
+  } else {
+    MwCASMetrics::AddFailedUpdate();
+  }
+  doCleanup();
+  
+  return isSuc;
+}
+
+/*void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
     uint32_t processPos)
 {
     bool succeeded = (status_ == kStatusSucceeded);
@@ -228,26 +237,18 @@ void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t callde
 
         persistTargetAddrValue(wd->address_);
     }
-}
-
-void FASASDescriptorPool::assigneValue(uint32_t pool_size, uint32_t partition_count, 
-    FASASDescriptor* desc_va, bool enable_stats)
-{
-    pool_size_ = pool_size;
-    descriptors_ = desc_va;
-    partition_count_ = partition_count;
-    partition_table_ = nullptr;
-    next_partition_ = 0;
-}
+}*/
 
 FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_count, 
     FASASDescriptor* desc_va, bool enable_stats)
+    : BaseDescriptorPool(pool_size, partition_count, enable_stats),
+      descriptors_(desc_va)
 { 
     //std::cout << "FASASDescriptorPool pool_size:" << std::dec << pool_size << ", desc_va:" 
         //<< std::hex << desc_va << std::endl;
-    assigneValue(pool_size, partition_count, desc_va, enable_stats);
 
     RAW_CHECK(descriptors_, "null descriptor pool");
+    
     Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
     //std::cout << "FASASDescriptorPool metadata:" << std::hex << metadata << std::endl;
     RAW_CHECK((uint64_t)metadata->initial_address == (uint64_t)metadata,
@@ -257,17 +258,14 @@ FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_
 
     //std::cout << "FASASDescriptorPool after check address and pool size" << std::endl;
 
-    initVariable(enable_stats);
-
-    FASASDescriptor* fasasDesc = (FASASDescriptor*)(descriptors_);
-    if(fasasDesc[0].status_ != Descriptor::kStatusInvalid) {
-        recover(fasasDesc);
+    if(descriptors_[0].opType_ != 0) {
+        recover(descriptors_);
     }
     else {
         std::cout << "no need to recover" << std::endl;
     }
     
-    memset(fasasDesc, 0, sizeof(FASASDescriptor) * pool_size_);
+    memset(descriptors_, 0, sizeof(FASASDescriptor) * pool_size_);
 
     // Distribute this many descriptors per partition
     RAW_CHECK(pool_size_ > partition_count_,
@@ -276,7 +274,7 @@ FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_
 
     uint32_t partition = 0;
     for(uint32_t i = 0; i < pool_size_; ++i) {
-        auto* desc = fasasDesc + i;
+        auto* desc = descriptors_ + i;
         DescriptorPartition* p = partition_table_ + partition;
         new(desc) FASASDescriptor(p);
         desc->next_ptr_ = p->free_list;
@@ -291,28 +289,21 @@ FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_
 void FASASDescriptorPool::recover(FASASDescriptor* fasasDesc) {
     uint64_t in_progress_desc = 0, redo_words = 0, undo_words = 0;
     for(uint32_t i = 0; i < pool_size_; ++i) {
-        auto& desc = fasasDesc[i];
-        if(desc.status_ == Descriptor::kStatusInvalid) {
+        FASASDescriptor & desc = fasasDesc[i];
+        if(desc.opType_ == 0) {
           // Must be a new pool - comes with everything zeroed but better
           // find this as we look at the first descriptor.
             RAW_CHECK(i == 0, "corrupted descriptor pool/data area");
             break;
         }
-        desc.assert_valid_status();
-        
-        uint32_t status = desc.status_ & ~Descriptor::kStatusDirtyFlag;
-        if(status == Descriptor::kStatusFinished) {
+
+        if(desc.privateAddress_ == nullptr) {
             continue;
-        } 
+        }
 
         in_progress_desc++;
-
-        if(desc.privateAddress_ != NULL) {
-            recoverForFASAS(status, desc, redo_words, undo_words);
-        }
-        else if(desc.count_ == 2) {
-            recoverForFASASByMwcas(status, desc, redo_words, undo_words);
-        }
+        uint64_t status = desc.getStatus();
+        recoverForFASAS(status, desc, redo_words, undo_words);
     }
 
     std::cout << "recover Found " << in_progress_desc <<
@@ -320,74 +311,71 @@ void FASASDescriptorPool::recover(FASASDescriptor* fasasDesc) {
         " words, rolled back " << undo_words << " words" << std::endl;
 }
 
-void FASASDescriptorPool::recoverForFASAS(uint32_t status,
+void FASASDescriptorPool::recoverForFASAS(uint64_t status,
     FASASDescriptor & descriptor, uint64_t& redo_words,
-    uint64_t& undo_words) {
-
-    auto& shareWord = descriptor.words_[FASASDescriptor::SHARE_VAR_POS];
-
-    if((*shareWord.address_) & Descriptor::kDirtyFlag) {
-        (*shareWord.address_) &= ~Descriptor::kDirtyFlag;
-        shareWord.PersistAddress();
+    uint64_t& undo_words) 
+{
+    if((*descriptor.word_.address_) & BaseDescriptor::kDirtyFlag) {
+        (*descriptor.word_.address_) &= ~BaseDescriptor::kDirtyFlag;
+        descriptor.word_.PersistAddress();
     }
 
-    uint64_t val = Descriptor::CleanPtr(*shareWord.address_);
-    if(status == Descriptor::kStatusSucceeded) {
-        if(descriptor.count_ == 2) {
-            auto & privateWD = descriptor.words_[FASASDescriptor::STORE_VAR_POS];
-            if((*(privateWD.address_)) & Descriptor::kDirtyFlag) {
-                (*privateWD.address_) &= ~Descriptor::kDirtyFlag;
-                privateWD.PersistAddress();
-            }
-
-            if(!descriptor.isPrivateAddrSet_) {
-                *(privateWD.address_) = privateWD.new_value_;
-                NVRAM::Flush(sizeof(uint64_t), (void*)privateWD.address_);
-                LOG(ERROR) << "Applied new value " << std::hex << privateWD.new_value_ << " to private address:" 
-                    << std::hex << privateWD.address_;
-                redo_words++;
-                descriptor.isPrivateAddrSet_ = true;
-                NVRAM::Flush(sizeof(descriptor.isPrivateAddrSet_), &descriptor.isPrivateAddrSet_);
-            }
-        }
-        else if (descriptor.count_ == 1) {
-            if((*(descriptor.privateAddress_)) & Descriptor::kDirtyFlag) {
-                (*(descriptor.privateAddress_)) &= ~Descriptor::kDirtyFlag;
-                NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
-            }
-
-            if(!descriptor.isPrivateAddrSet_) {
-                *(descriptor.privateAddress_) = shareWord.old_value_;
-                NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.privateAddress_);
-                LOG(ERROR) << "Applied new value " << std::hex << shareWord.old_value_ << " to private address:" 
-                    << std::hex << descriptor.privateAddress_;
-                redo_words++;
-                descriptor.isPrivateAddrSet_ = true;
-                NVRAM::Flush(sizeof(descriptor.isPrivateAddrSet_), &descriptor.isPrivateAddrSet_);
-            }
+    uint64_t val = Descriptor::CleanPtr(*descriptor.word_.address_);
+    if(status == FASASDescriptor::SuccStatus) {
+        bool isRedoFlg = false;
+        if(descriptor.isPrivateValueSet() == 0) {
+            isRedoFlg = true;
+            doRecoverPrivateAddrSucc(descriptor);
         }
 
         if(val == (uint64_t)&descriptor) {
-            *(shareWord.address_) = shareWord.new_value_;
-            NVRAM::Flush(sizeof(uint64_t), (void*)shareWord.address_);
-
-            LOG(ERROR) << "Applied new value " << std::hex << shareWord.new_value_ << " to share address:" 
-               << std::hex << shareWord.address_;
-            redo_words++;
+            isRedoFlg = true;
+            doRecoverShareAddrSucc(descriptor);
         }
+
+        if(isRedoFlg) redo_words++;
     }
-    else if(status == Descriptor::kStatusFailed && val == (uint64_t)&descriptor) {
-        *(shareWord.address_) = shareWord.old_value_;
-        NVRAM::Flush(sizeof(uint64_t), (void*)shareWord.address_);
-
-        LOG(ERROR) << "Applied old value " << std::hex << shareWord.old_value_ << " to share address:" 
-           << std::hex << shareWord.address_;
-
+    else if(status == FASASDescriptor::FailedStatus && val == (uint64_t)&descriptor){
+        doRecoverShareAddrFail(descriptor);
         undo_words++;
     }
 }
 
-void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
+void FASASDescriptorPool::doRecoverPrivateAddrSucc(FASASDescriptor & descriptor) 
+{   
+    uint64_t * privateAddress = descriptor.getPrivateAddress();
+    if(FASASDescriptor::isRecoverCAS(descriptor.getOpType())) {
+        *(privateAddress) = 1;
+    }
+    else if(FASASDescriptor::isDoubleCAS(descriptor.getOpType())) {
+        *(privateAddress) = 
+            FASASDescriptor::getDCASValue(descriptor.getOpType());
+    }
+    else if(FASASDescriptor::isFASAS(descriptor.getOpType())) {
+        *(privateAddress) = descriptor.word_.old_value_;
+    }
+
+    NVRAM::Flush(sizeof(uint64_t), (void*)privateAddress);
+    LOG(ERROR) << "Applied new value " << std::hex 
+        << (*privateAddress) << " to private address:" 
+        << std::hex << privateAddress;
+}
+
+void FASASDescriptorPool::doRecoverShareAddrSucc(FASASDescriptor & descriptor) {
+    *(descriptor.word_.address_) = descriptor.word_.new_value_;
+    NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.word_.address_);
+    LOG(ERROR) << "Applied new value " << std::hex << *(descriptor.word_.address_) 
+        << " to share address:" << std::hex << descriptor.word_.address_;
+}
+
+void FASASDescriptorPool::doRecoverShareAddrFail(FASASDescriptor & descriptor) {
+    *(descriptor.word_.address_) = descriptor.word_.old_value_;
+    NVRAM::Flush(sizeof(uint64_t), (void*)descriptor.word_.address_);
+    LOG(ERROR) << "Applied old value " << std::hex << *(descriptor.word_.address_) 
+        << " to share address:" << std::hex << descriptor.word_.address_;
+}
+
+/*void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
     FASASDescriptor & descriptor, 
     uint64_t& redo_words, uint64_t& undo_words)
 {
@@ -431,15 +419,12 @@ void FASASDescriptorPool::recoverForFASASByMwcas(uint32_t status,
             }
         }
     }
-}
+}*/
 
-FASASDescriptor* FASASDescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
-    Descriptor::FreeCallback fc)
+FASASDescriptor* FASASDescriptorPool::AllocateDescriptor()
 {
-    return (FASASDescriptor*)DescriptorPool::AllocateDescriptor(ac, fc);
+    return (FASASDescriptor*)AllocateBaseDescriptor();
 }
-
-
 
 }
 

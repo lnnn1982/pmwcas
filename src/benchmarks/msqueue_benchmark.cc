@@ -369,7 +369,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         initMWCasDescriptorPool(segment, &descPool_);
     }
 
-    virtual DescriptorPool* getDescPool() {
+    virtual BaseDescriptorPool* getDescPool() {
         return descPool_;
     }
 
@@ -576,7 +576,7 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
         initFASSDescriptorPool(segment, &fasasDescPool_);
     }
 
-    virtual DescriptorPool* getDescPool() {
+    virtual BaseDescriptorPool* getDescPool() {
         return fasasDescPool_;
     }
 
@@ -667,7 +667,7 @@ struct MSQueueByOrgCasTest : public MSQueueTPMWCasest {
         return sizeof(OrgCasNode);
     }
 
-    virtual DescriptorPool* getDescPool() {
+    virtual BaseDescriptorPool* getDescPool() {
         return NULL;
     }
 

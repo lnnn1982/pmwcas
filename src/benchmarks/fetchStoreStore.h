@@ -17,16 +17,20 @@ public:
     uint64_t process(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool);
     
-    uint64_t processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
-	   uint64_t newval, FASASDescriptorPool* fasasDescPool);
+    /*uint64_t processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
+	   uint64_t newval, FASASDescriptorPool* fasasDescPool);*/
 
     bool dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
 	   uint64_t oldVal1, uint64_t oldVal2, 
 	   uint64_t newVal1, uint64_t newVal2, FASASDescriptorPool* fasasDescPool);    
+    bool recoverCas(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
+       uint64_t oldVal, uint64_t newVal, FASASDescriptorPool* fasasDescPool);
+
+       
 
 
 private:
-    void epochProtect(DescriptorPool* descPool);
+    void epochProtect(BaseDescriptorPool* descPool);
         
     static thread_local uint64_t epochs_;
     const uint64_t kEpochThreshold_ = 100;

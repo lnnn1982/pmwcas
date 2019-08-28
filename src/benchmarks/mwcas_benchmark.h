@@ -186,7 +186,7 @@ struct BaseMwCas : public Benchmark {
     return segment;
   }
 
-  virtual DescriptorPool* getDescPool() {
+  virtual BaseDescriptorPool* getDescPool() {
     return NULL;
   }
 

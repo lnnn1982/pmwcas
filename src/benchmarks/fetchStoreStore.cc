@@ -71,9 +71,10 @@ uint64_t FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAd
 		
 		FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
 		CHECK_NOTNULL(descriptor);
-		
-		descriptor->addEntryByPos((uint64_t*)(shareAddr), targetValue,
-			newval, FASASDescriptor::SHARE_VAR_POS);
+
+        descriptor->setOpType(FASASDescriptor::FASASOp);
+		descriptor->addSharedWord((uint64_t*)(shareAddr), targetValue,
+			newval);
 		descriptor->setPrivateAddress((uint64_t*)(privateAddr));
 	
 		if(descriptor->process()) {
@@ -85,26 +86,40 @@ uint64_t FetchStoreStore::process(FASASCasPtr* shareAddr, FASASCasPtr* privateAd
 }
 
 bool FetchStoreStore::dcas(FASASCasPtr* targetAddr1, FASASCasPtr* targetAddr2, 
-   uint64_t oldVal1, uint64_t oldVal2, 
-   uint64_t newVal1, uint64_t newVal2,
+   uint64_t oldVal1, uint64_t oldVal2, uint64_t newVal1, uint64_t newVal2,
    FASASDescriptorPool* fasasDescPool)
 {
     epochProtect(fasasDescPool);
     
     FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
 	CHECK_NOTNULL(descriptor);
-		
-	descriptor->addEntryByPos((uint64_t*)(targetAddr1), oldVal1,
-			newVal1, FASASDescriptor::SHARE_VAR_POS);
-	descriptor->addEntryByPos((uint64_t*)(targetAddr2), oldVal2,
-			newVal2, FASASDescriptor::STORE_VAR_POS);
 
-    descriptor->setPrivateAddress((uint64_t*)(targetAddr2));
+    descriptor->setOpType(FASASDescriptor::setOpTypeFlg(newVal2, FASASDescriptor::DoubleCASOp));
+    descriptor->addSharedWord((uint64_t*)(targetAddr1), oldVal1,
+			newVal1);
+	descriptor->setPrivateAddress((uint64_t*)(targetAddr2));
 
     return descriptor->process();
 }
 
-uint64_t FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
+bool FetchStoreStore::recoverCas(FASASCasPtr* shareAddr, FASASCasPtr* privateAddr, 
+   uint64_t oldVal, uint64_t newVal, FASASDescriptorPool* fasasDescPool)
+{
+    epochProtect(fasasDescPool);
+    
+    FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
+	CHECK_NOTNULL(descriptor);
+
+    descriptor->setOpType(FASASDescriptor::RecoverCASOp);
+    descriptor->addSharedWord((uint64_t*)(shareAddr), oldVal,
+			newVal);
+	descriptor->setPrivateAddress((uint64_t*)(privateAddr));
+
+    return descriptor->process();
+}
+
+
+/*uint64_t FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
 	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
 {
     while(1) {
@@ -133,9 +148,9 @@ uint64_t FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* s
 		}
 	}
 
-}   
+} */  
 
-void FetchStoreStore::epochProtect(DescriptorPool* descPool) {
+void FetchStoreStore::epochProtect(BaseDescriptorPool* descPool) {
     if(++epochs_ == kEpochThreshold_) {
         descPool->GetEpoch()->Unprotect();
         descPool->GetEpoch()->Protect();

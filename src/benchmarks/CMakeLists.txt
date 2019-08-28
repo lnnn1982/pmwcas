@@ -16,3 +16,6 @@ add_executable(msqueue_benchmark ${BENCHMARK_HEADERS} msqueue_benchmark.cc PMWCa
 MSQueueByLog.cc MSQueueByPMCasV2.cc fetchStoreStore.cc MSQueueByOrgCas.cc ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
 target_link_libraries(msqueue_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APPS_LINK_LIBS})
 
+add_executable(recoverCAS_benchmark ${BENCHMARK_HEADERS} recoverCas_benchmark.cc fetchStoreStore.cc RecoverCAS.cpp ${CMAKE_SOURCE_DIR}/${LINUX_ENVIRONMENT_SOURCES})
+target_link_libraries(recoverCAS_benchmark ${PMWCAS_BENCHMARK_LINK_LIBS} ${PMWCAS_APPS_LINK_LIBS})
+

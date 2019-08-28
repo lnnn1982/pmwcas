@@ -162,6 +162,15 @@ T* CompareExchange64Ptr(T** destination, T* new_value, T* comparand) {
   return comparand;
 }
 
+template <typename T> T CompareExchange8(T* destination, T new_value,
+    T comparand) {
+  static_assert(sizeof(T) == 1,
+      "CompareExchange8 only works on 8 bit values");
+  ::__atomic_compare_exchange_n(destination, &comparand, new_value, false,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+  return comparand;
+}
+    
 template <typename T> T CompareExchange32(T* destination, T new_value,
     T comparand) {
   static_assert(sizeof(T) == 4,

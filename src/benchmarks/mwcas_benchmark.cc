@@ -222,10 +222,10 @@ struct BaseFASASTest : public BaseMwCas {
 	RAW_CHECK(s.ok(), "Error initializing thread");
 
 	RandomNumberGenerator rng(FLAGS_seed + thread_index, 0, FLAGS_array_size);
-    DescriptorPool* descPool = getDescPool();
+    BaseDescriptorPool* descPool = getDescPool();
 
     LinearCheckerLogger::LogWriter * logWriter = NULL;
-    //unsigned int not_used = 0;
+    unsigned int not_used = 0;
     if(FLAGS_enable_linearcheck_log) {
       std::string logFileName = genLinearCheckLogFileName(thread_index);
       logWriter = new LinearCheckerLogger::LogWriter(logFileName, true);
@@ -237,9 +237,6 @@ struct BaseFASASTest : public BaseMwCas {
     WaitForStart();
 
     FetchStoreStore fetchStoreStore;
-
-    const uint64_t kEpochThreshold = 100;
-	uint64_t epochs = 0;
 	descPool->GetEpoch()->Protect();
 		
 	uint64_t n_success = 0;
@@ -258,8 +255,8 @@ struct BaseFASASTest : public BaseMwCas {
       uint64_t targetIdx = rng.Generate(FLAGS_array_size);
       if(logWriter != NULL) {
         LinearCheckerLogger::FetchStoreLog log(std::to_string(thread_index),
-             //__rdtscp(&not_used) -startLogTime_, 
-             Environment::Get()->NowNanos() -startLogTime_,
+             //__rdtscp(&not_used), 
+             Environment::Get()->NowNanos(),
              LinearCheckerLogger::LClog::INVOKE_LOG);
         log.addOneAddrData(std::to_string(targetIdx), std::to_string(newValue));
         log.genContent();
@@ -269,8 +266,8 @@ struct BaseFASASTest : public BaseMwCas {
       uint64_t oldValue = doFASAS(targetIdx, thread_index, newValue, fetchStoreStore);
       if(logWriter != NULL) {
         LinearCheckerLogger::FetchStoreLog log(std::to_string(thread_index),
-            //__rdtscp(&not_used) -startLogTime_,
-            Environment::Get()->NowNanos() -startLogTime_,
+           // __rdtscp(&not_used),
+            Environment::Get()->NowNanos(),
             LinearCheckerLogger::LClog::RESPONSE_LOG);
         log.addOneAddrData(std::to_string(targetIdx), std::to_string(oldValue));
         log.genContent();
@@ -307,7 +304,7 @@ struct BaseFASASTest : public BaseMwCas {
 
   void initLinearCheckerLog(std::string const & fileNamePrefix) {
     linearCheckerLogNamePrefix_ = fileNamePrefix;
-    //unsigned int not_used = 0;
+    unsigned int not_used = 0;
     //startLogTime_ =  __rdtscp(&not_used);
     startLogTime_ = Environment::Get()->NowNanos();
     std::cout <<  std::dec << "startLogTime_:" << startLogTime_ << std::endl;
@@ -391,7 +388,7 @@ struct FASASTestByOrgPMwCas : public BaseFASASTest {
       FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
   }
 
-  virtual DescriptorPool* getDescPool() {
+  virtual BaseDescriptorPool* getDescPool() {
     return descPool_;
   }
 
@@ -459,19 +456,19 @@ struct FASASTest : public BaseFASASTest {
     // to be re-initialized, rather this provides us the opportunity to do a
     // sanity check: no field should still point to a descriptor after recovery.
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
-      if(Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i])) {
+      if(BaseDescriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i])) {
         std::cout << "share varible is descriptor ptr:" << std::hex << (uint64_t)shareArrayPtr_[i] << 
             ", i:" << i << ", addr:" << std::hex << (&(shareArrayPtr_[i])) << std::endl;
       }
-      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
+      RAW_CHECK(!BaseDescriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
     }
 
     for(uint32_t i = 0; i < FLAGS_threads; ++i) {
-      if(Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i])) {
+      if(BaseDescriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i])) {
         std::cout << "private varible is descriptor ptr:" << std::hex << (uint64_t)privateArrayPtr_[i] <<
             ", i:" << i << ", addr:" << std::hex << (&(privateArrayPtr_[i])) << std::endl;
       }
-      RAW_CHECK(!Descriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i]), "Wrong value");
+      RAW_CHECK(!BaseDescriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i]), "Wrong value");
     }
     
     // Now we can start from a clean slate (perhaps not necessary)
@@ -505,15 +502,17 @@ struct FASASTest : public BaseFASASTest {
   {
     FASASCasPtr* targetAddress = reinterpret_cast<FASASCasPtr*>(&(shareArrayPtr_[targetIdx])); 
 	FASASCasPtr* storeAddress = reinterpret_cast<FASASCasPtr*>(&(privateArrayPtr_[thread_index]));
-    if(FLAGS_FASAS_BASE_TYPE == 1) {
+    return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
+
+    /*if(FLAGS_FASAS_BASE_TYPE == 1) {
       return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
     }
     else {
       return fetchStoreStore.processByMwcas(targetAddress, storeAddress, newValue, fasasDescPool_);
-    }
+    }*/
   }
 
-  virtual DescriptorPool* getDescPool() {
+  virtual BaseDescriptorPool* getDescPool() {
     return fasasDescPool_;
   }       
 	
@@ -523,14 +522,14 @@ struct FASASTest : public BaseFASASTest {
     }
     
     for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
+      RAW_CHECK(BaseDescriptor::IsCleanPtr((uint64_t)shareArrayPtr_[i]), "share variable Wrong value");
       LOG(INFO) << "pos=" << i << ", val=" << (uint64_t)shareArrayPtr_[i];
       RAW_CHECK((uint64_t)shareArrayPtr_[i] % 4 == 0, "share value not multi of 4");
     }
 
     for(uint32_t i = 0; i < FLAGS_threads; i++) {
       LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[i];
-      RAW_CHECK(Descriptor::IsCleanPtr((uint64_t)privateArrayPtr_[i]), "private variable Wrong value");
+      RAW_CHECK(BaseDescriptor::IsCleanPtr((uint64_t)privateArrayPtr_[i]), "private variable Wrong value");
       RAW_CHECK((uint64_t)privateArrayPtr_[i] % 4 == 0, "private value not multi of 4");
     }
 
@@ -649,7 +648,7 @@ struct RecoverMutexTestBase : public BaseMwCas {
         getRecoverMutex(i)->setMyNode(node);
     }
     
-    DescriptorPool* descPool = getDescPool();
+    BaseDescriptorPool* descPool = getDescPool();
    
     WaitForStart();
 
@@ -754,7 +753,7 @@ struct RecoverByOrgPMwCas : public RecoverMutexTestBase {
     initMWCasDescriptorPool(segment, &descPool_);
   }
 
-  virtual DescriptorPool* getDescPool() {
+  virtual BaseDescriptorPool* getDescPool() {
     return descPool_;
   }
 
@@ -785,7 +784,7 @@ struct RecoverNew : public RecoverMutexTestBase {
     initFASSDescriptorPool(segment, &fasasDescPool_);
   }
 
-  virtual DescriptorPool* getDescPool() {
+  virtual BaseDescriptorPool* getDescPool() {
     return fasasDescPool_;
   }
   

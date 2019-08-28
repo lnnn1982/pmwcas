@@ -92,14 +92,122 @@ class DescriptorPool;
 
 //static uint64_t persisCoutFlg = 0; 
 
-class alignas(kCacheLineSize) Descriptor {
-  template<typename T> friend class MwcTargetField;
+class BaseDescriptor {
   template<typename T> friend class FASASTargetField;
+  template<typename T> friend class MwcTargetField;
+  
+public:
+    friend class BaseDescriptorPool;
+    friend class DescriptorPool;
+    friend class FASASDescriptorPool;
+  
+    /// Specifies what word to update in the mwcas, storing before/after images so
+    /// others may help along. This also servers as the descriptor for conditional
+    /// CAS(RDCSS in the Harris paper). status_address_ points to the parent
+    /// Descriptor's status_ field which determines whether a CAS that wishes to
+    /// make address_ point to WordDescriptor can happen.
+    struct BaseWordDescriptor {
+
+        /// The target address
+        uint64_t* address_;
+
+        /// The original old value stored at /a Address
+        uint64_t old_value_;
+
+        /// The new value to be stored at /a Address
+        uint64_t new_value_;
+
+#ifdef PMEM
+        /// Persist the content of address_
+        inline void PersistAddress() {
+            //NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
+	        //nan test
+	        NVRAM::Flush(sizeof(uint64_t), (void*)address_);
+        }
+#endif
+    };
+
+    /// Signifies a dirty word requiring cache line write back
+    static const uint64_t kDirtyFlag   = (uint64_t)1 << 61;
+
+    /// Flag signifying an multi-word CAS is underway for the target word.
+    static const uint64_t kMwCASFlag   = (uint64_t)1 << 63;
+
+    /// Flag signifying a conditional CAS is underway for the target word.
+    static const uint64_t kCondCASFlag = (uint64_t)1 << 62;
+
+    /// Returns whether the value given is an MwCAS descriptor or not.
+    inline static bool IsMwCASDescriptorPtr(uint64_t value) {
+        return value & kMwCASFlag;
+    }
+
+    /// Returns whether the value given is a CondCAS descriptor or not.
+    inline static bool IsCondCASDescriptorPtr(uint64_t value) {
+        return value & kCondCASFlag;
+    }
+
+    /// Returns whether the underlying word is dirty (not surely persisted).
+    inline static bool IsDirtyPtr(uint64_t value) {
+        return value & kDirtyFlag;
+    }
+
+    /// Clear the descriptor flag for the provided /a ptr
+    static inline uint64_t CleanPtr(uint64_t ptr) {
+        return ptr & ~(kMwCASFlag | kCondCASFlag | kDirtyFlag);
+    }
+
+    /// Bitwise-or the given flags to the given value
+    inline static uint64_t SetFlags(uint64_t value, uint64_t flags) {
+        RAW_CHECK((flags & ~(kMwCASFlag | kCondCASFlag | kDirtyFlag)) == 0,
+            "invalid flags");
+        return value | flags;
+    }
+
+    /// Set the given flags for a target descriptor word.
+    inline static uint64_t SetFlags(BaseDescriptor* desc, uint64_t flags) {
+        return SetFlags((uint64_t)desc, flags);
+    }
+
+    /// Returns whether the value given is an MwCAS descriptor or not.
+    inline static bool isDescriptorPtr(uint64_t value) {
+        return IsMwCASDescriptorPtr(value) || IsCondCASDescriptorPtr(value);
+    }
+
+    /// Returns true if the target word has no pmwcas management flags set.
+    inline static bool IsCleanPtr(uint64_t value) {
+        return (value & (kCondCASFlag | kMwCASFlag | kDirtyFlag)) == 0;
+    } 
+
+    virtual void Initialize() = 0;
+    virtual void DeallocateMemory() = 0;
+
+    /// Places a descriptor back on the descriptor free pool (partitioned). This
+    /// can be used as the callback function for the epoch manager/garbage list to
+    /// reclaim this descriptor for reuse after we are sure no one is using or
+    /// could possibly access this descriptor.
+    static void FreeDescriptor(void* context, void* desc);
+
+protected: 
+    void doCleanup();
+	
+    BaseDescriptor(DescriptorPartition* partition);
+
+    /// Free list pointer for managing free pre-allocated descriptor pools
+    BaseDescriptor * next_ptr_;
+
+    /// Back pointer to owning partition so the descriptor can be returned to its
+    /// howm partition when it is freed.
+    DescriptorPartition* owner_partition_;
+
+};
+
+
+
+class alignas(kCacheLineSize) Descriptor : public  BaseDescriptor {
+  template<typename T> friend class MwcTargetField;
 
 
 public:
-  /// Signifies a dirty word requiring cache line write back
-  static const uint64_t kDirtyFlag   = (uint64_t)1 << 61;
 
   /// Garbage list recycle policy: only free [new_value] upon restart
   static const uint32_t kRecycleOnRecovery = 0x1;
@@ -133,19 +241,10 @@ public:
   /// CAS(RDCSS in the Harris paper). status_address_ points to the parent
   /// Descriptor's status_ field which determines whether a CAS that wishes to
   /// make address_ point to WordDescriptor can happen.
-  struct WordDescriptor {
-
-    /// The target address
-    uint64_t* address_;
-
-    /// The original old value stored at /a Address
-    uint64_t old_value_;
-
-    /// The new value to be stored at /a Address
-    uint64_t new_value_;
-
+  struct WordDescriptor : public BaseDescriptor::BaseWordDescriptor {
     /// The parent Descriptor's status
-    uint32_t* status_address_;
+    //uint32_t* status_address_;
+    Descriptor* ownDesc_;
 
     /// Whether to invoke the user-provided memory free callback to free the
     /// memory when recycling this descriptor. This must be per-word - the
@@ -156,25 +255,10 @@ public:
 
     /// Returns the parent descriptor for this particular word
     inline Descriptor* GetDescriptor() {
-      return (Descriptor*)((uint64_t)status_address_ -
-          offsetof(Descriptor, status_));
+      //return (Descriptor*)((uint64_t)status_address_ -
+          //offsetof(Descriptor, status_));
+      return ownDesc_;
     }
-
-	
-#ifdef PMEM
-    /// Persist the content of address_
-    inline void PersistAddress() {
-	    /*if(persisCoutFlg == 0) {
-			LOG(ERROR) << "address:" << address_ << ", address1:" << (&address_);
-			persisCoutFlg = 1;
-		}*/
-		
-      //NVRAM::Flush(sizeof(uint64_t*), (void*)&address_);
-	  //nan test
-	  NVRAM::Flush(sizeof(uint64_t), (void*)address_);
-    }
-#endif
-
   };
 
   /// Default constructor
@@ -183,6 +267,9 @@ public:
 
   /// Function for initializing a newly allocated Descriptor.
   void Initialize();
+
+  /// Deallocate the memory associated with the MwCAS if needed.
+  void DeallocateMemory();
 
   /// Executes the multi-word compare and swap operation.
   bool MwCAS(uint32_t calldepth = 0) {
@@ -235,22 +322,14 @@ public:
   /// Abort the MwCAS operation, can be used only before the operation starts.
   Status Abort();
 
-    /// Returns whether the value given is an MwCAS descriptor or not.
-  inline static bool isDescriptorPtr(uint64_t value) {
-    return IsMwCASDescriptorPtr(value) || IsCondCASDescriptorPtr(value);
-  }
 
-    /// Returns true if the target word has no pmwcas management flags set.
-  inline static bool IsCleanPtr(uint64_t value) {
-    return (value & (kCondCASFlag | kMwCASFlag | kDirtyFlag)) == 0;
-  }
 
-protected:
+private:
   /// Allow tests to access privates for failure injection purposes.
   FRIEND_TEST(PMwCASTest, SingleThreadedRecovery);
 
+  friend class BaseDescriptorPool;
   friend class DescriptorPool;
-  friend class FASASDescriptorPool;
 
   /// Value signifying an internal reserved value for a new entry
   static const uint64_t kNewValueReserved = ~0ull;
@@ -311,43 +390,6 @@ protected:
   uint32_t ReadPersistStatus();
 #endif
 
-  /// Flag signifying an multi-word CAS is underway for the target word.
-  static const uint64_t kMwCASFlag   = (uint64_t)1 << 63;
-
-  /// Flag signifying a conditional CAS is underway for the target word.
-  static const uint64_t kCondCASFlag = (uint64_t)1 << 62;
-
-  /// Returns whether the value given is an MwCAS descriptor or not.
-  inline static bool IsMwCASDescriptorPtr(uint64_t value) {
-    return value & kMwCASFlag;
-  }
-
-  /// Returns whether the value given is a CondCAS descriptor or not.
-  inline static bool IsCondCASDescriptorPtr(uint64_t value) {
-    return value & kCondCASFlag;
-  }
-
-  /// Returns whether the underlying word is dirty (not surely persisted).
-  inline static bool IsDirtyPtr(uint64_t value) {
-    return value & kDirtyFlag;
-  }
-
-   /// Clear the descriptor flag for the provided /a ptr
-  static inline uint64_t CleanPtr(uint64_t ptr) {
-    return ptr & ~(kMwCASFlag | kCondCASFlag | kDirtyFlag);
-  }
-
-  /// Bitwise-or the given flags to the given value
-  inline static uint64_t SetFlags(uint64_t value, uint64_t flags) {
-    RAW_CHECK((flags & ~(kMwCASFlag | kCondCASFlag | kDirtyFlag)) == 0,
-        "invalid flags");
-    return value | flags;
-  }
-
-  /// Set the given flags for a target descriptor word.
-  inline static uint64_t SetFlags(Descriptor* desc, uint64_t flags) {
-    return SetFlags((uint64_t)desc, flags);
-  }
 
   /// Mask to indicate the status field is dirty, any reader should first flush
   /// it before use.
@@ -356,18 +398,6 @@ protected:
   /// Cleanup steps of MWCAS common to both persistent and volatile versions.
   bool Cleanup();
 
-  /// Deallocate the memory associated with the MwCAS if needed.
-  void DeallocateMemory();
-
-  /// Places a descriptor back on the descriptor free pool (partitioned). This
-  /// can be used as the callback function for the epoch manager/garbage list to
-  /// reclaim this descriptor for reuse after we are sure no one is using or
-  /// could possibly access this descriptor.
-  static void FreeDescriptor(void* context, void* desc);
-
-  /// Descriptor states. Valid transitions are as follows:
-  /// kStatusUndecided->kStatusSucceeded->kStatusFinished->kStatusUndecided
-  ///               \-->kStatusFailed-->kStatusFinished->kStatusUndecided
   static const uint32_t kStatusInvalid   = 0U;
   static const uint32_t kStatusFinished  = 1U;
   static const uint32_t kStatusSucceeded = 2U;
@@ -384,12 +414,6 @@ protected:
   /// changing this, also remember to adjust the static assert below.
   static const int kMaxCount = 4;
 
-  /// Free list pointer for managing free pre-allocated descriptor pools
-  Descriptor* next_ptr_;
-
-  /// Back pointer to owning partition so the descriptor can be returned to its
-  /// howm partition when it is freed.
-  DescriptorPartition* owner_partition_;
 
   /// Tracks the current status of the descriptor.
   uint32_t status_;
@@ -417,28 +441,26 @@ static_assert(sizeof(Descriptor) <= 4 * kCacheLineSize,
 struct alignas(kCacheLineSize)DescriptorPartition {
 
   DescriptorPartition() = delete;
-  DescriptorPartition(EpochManager* epoch, DescriptorPool* pool);
+  //DescriptorPartition(EpochManager* epoch, DescriptorPool* pool);
+  DescriptorPartition(EpochManager* epoch);
 
   ~DescriptorPartition();
 
   /// Pointer to the free list head (currently managed by lock-free list)
-  Descriptor *free_list;
+  BaseDescriptor *free_list;
 
   /// Back pointer to the owner pool
-  DescriptorPool* desc_pool;
+  //DescriptorPool* desc_pool;
 
   /// Garbage list holding freed pointers/words waiting to clear epoch
   /// protection before being truly recycled.
   GarbageListUnsafe* garbage_list;
 };
 
-class DescriptorPool {
+class BaseDescriptorPool {
 protected:
   /// Total number of descriptors in the pool
   uint32_t pool_size_;
-
-  /// Points to all descriptors
-  Descriptor* descriptors_;
 
   /// Number of partitions in the partition_table_
   uint32_t partition_count_;
@@ -455,7 +477,10 @@ protected:
 
   void initVariable(bool enable_stats);
 
-  DescriptorPool() {}
+  BaseDescriptor * AllocateBaseDescriptor();
+
+  BaseDescriptorPool(uint32_t pool_size, uint32_t partition_count, bool enable_stats);
+  ~BaseDescriptorPool();
 
  public:
   /// Metadata that prefixes the actual pool of descriptors for persistence
@@ -471,19 +496,26 @@ protected:
   static_assert(sizeof(Metadata) == kCacheLineSize,
                 "Metadata not of cacheline size");
 
-  DescriptorPool(
-    uint32_t pool_size,
-    uint32_t partition_count,
-    Descriptor* desc_va,
-    bool enable_stats = false);
-
-  ~DescriptorPool();
-
   /// Returns a pointer to the epoch manager associated with this pool.
   /// MwcTargetField::GetValue() needs it.
   EpochManager* GetEpoch() {
     return &epoch_;
   }
+
+};
+
+class DescriptorPool : public BaseDescriptorPool {
+private:
+  /// Points to all descriptors
+  Descriptor * descriptors_;
+
+ public:
+
+  DescriptorPool(
+    uint32_t pool_size,
+    uint32_t partition_count,
+    Descriptor* desc_va,
+    bool enable_stats = false);
 
   // Get a free descriptor from the pool.
   Descriptor* AllocateDescriptor(Descriptor::AllocateCallback ac,
@@ -505,10 +537,10 @@ class MwcTargetField {
   static_assert(sizeof(T) == 8, "MwCTargetField type is not of size 8 bytes");
 
 public:
-  static const uint64_t kMwCASFlag = Descriptor::kMwCASFlag;
-  static const uint64_t kCondCASFlag = Descriptor::kCondCASFlag;
+  static const uint64_t kMwCASFlag = BaseDescriptor::kMwCASFlag;
+  static const uint64_t kCondCASFlag = BaseDescriptor::kCondCASFlag;
   static const uint64_t kDescriptorMask = kMwCASFlag | kCondCASFlag;
-  static const uint64_t kDirtyFlag   = Descriptor::kDirtyFlag;
+  static const uint64_t kDirtyFlag   = BaseDescriptor::kDirtyFlag;
 
   MwcTargetField(void* desc = nullptr) {
     value_ = T(desc);
@@ -604,8 +636,9 @@ protected:
 
       CompareExchange64(
         wd->address_,
-        *wd->status_address_ == Descriptor::kStatusUndecided ?
-            dptr : wd->old_value_,
+        //*wd->status_address_ == Descriptor::kStatusUndecided ?
+            //dptr : wd->old_value_,
+        wd->ownDesc_->status_ == Descriptor::kStatusUndecided ? dptr : wd->old_value_,
         val);
       goto retry;
     }
@@ -637,8 +670,9 @@ protected:
       RAW_CHECK((char*)this == (char*)wd->address_, "wrong addresses");
       CompareExchange64(
         wd->address_,
-        *wd->status_address_ == Descriptor::kStatusUndecided ?
-            dptr : wd->old_value_,
+        //*wd->status_address_ == Descriptor::kStatusUndecided ?
+            //dptr : wd->old_value_,
+        wd->ownDesc_->status_ == Descriptor::kStatusUndecided ? dptr : wd->old_value_,
         val);
       goto retry;
     }
@@ -675,8 +709,9 @@ retry:
         Descriptor::SetFlags(wd->GetDescriptor(), kMwCASFlag | kDirtyFlag);
       CompareExchange64(
         wd->address_,
-        *wd->status_address_ == Descriptor::kStatusUndecided ?
-            dptr : wd->old_value_,
+        //*wd->status_address_ == Descriptor::kStatusUndecided ?
+            //dptr : wd->old_value_,
+        wd->ownDesc_->status_ == Descriptor::kStatusUndecided ? dptr : wd->old_value_,
         val);
       goto retry;
     }
@@ -717,8 +752,9 @@ retry:
         Descriptor::SetFlags(wd->GetDescriptor(), kMwCASFlag | kDirtyFlag);
       CompareExchange64(
         wd->address_,
-        *wd->status_address_ == Descriptor::kStatusUndecided ?
-            dptr : wd->old_value_,
+        //*wd->status_address_ == Descriptor::kStatusUndecided ?
+            //dptr : wd->old_value_,
+        wd->ownDesc_->status_ == Descriptor::kStatusUndecided ? dptr : wd->old_value_,
         val);
       goto retry;
     }

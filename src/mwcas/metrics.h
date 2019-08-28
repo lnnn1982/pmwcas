@@ -13,6 +13,7 @@ class DescriptorPool;
 // call ThreadInitialize() before start.
 struct MwCASMetrics {
   friend class DescriptorPool;
+  friend class BaseDescriptorPool;
  public:
   MwCASMetrics& operator+=(const MwCASMetrics& other) {
     succeeded_update_count += other.succeeded_update_count;

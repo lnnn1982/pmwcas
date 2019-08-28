@@ -16,9 +16,8 @@ namespace pmwcas {
 bool MwCASMetrics::enabled = false;
 CoreLocal<MwCASMetrics*> MwCASMetrics::instance;
 
-DescriptorPartition::DescriptorPartition(EpochManager* epoch,
-    DescriptorPool* pool)
-    : desc_pool(pool) {
+DescriptorPartition::DescriptorPartition(EpochManager* epoch)
+{
   free_list = nullptr;
   garbage_list = (GarbageListUnsafe*)Allocator::Get()->Allocate(
         sizeof(GarbageListUnsafe));
@@ -31,7 +30,7 @@ DescriptorPartition::~DescriptorPartition() {
     garbage_list->Uninitialize();
 }
 
-void DescriptorPool::initVariable(bool enable_stats)
+void BaseDescriptorPool::initVariable(bool enable_stats)
 {
   MwCASMetrics::enabled = enable_stats;
 
@@ -66,7 +65,7 @@ void DescriptorPool::initVariable(bool enable_stats)
   RAW_CHECK(nullptr != partition_table_, "out of memory");
 
   for(uint32_t i = 0; i < partition_count_; ++i) {
-    new(&partition_table_[i]) DescriptorPartition(&epoch_, this);
+    new(&partition_table_[i]) DescriptorPartition(&epoch_);
   }
 
   // If a pool area is provided, recover from it. Otherwise create a new one.
@@ -74,21 +73,30 @@ void DescriptorPool::initVariable(bool enable_stats)
   RAW_CHECK(pool_size_ > 0, "invalid pool size");
 }
 
+BaseDescriptorPool::BaseDescriptorPool(
+    uint32_t pool_size, uint32_t partition_count, bool enable_stats)
+    : pool_size_(pool_size),
+      partition_count_(partition_count),
+      partition_table_(nullptr),
+      next_partition_(0)  
+{
+    initVariable(enable_stats);
+}
+
+BaseDescriptorPool::~BaseDescriptorPool() {
+    MwCASMetrics::Uninitialize();
+}
+
 DescriptorPool::DescriptorPool(
     uint32_t pool_size, uint32_t partition_count, Descriptor* desc_va,
     bool enable_stats)
-    : pool_size_(pool_size),
-      descriptors_(desc_va),
-      partition_count_(partition_count),
-      partition_table_(nullptr),
-      next_partition_(0) 
+    : BaseDescriptorPool(pool_size, partition_count, enable_stats),
+      descriptors_(desc_va)
 {
   //std::cout << "DescriptorPool pool_size:" << std::dec << pool_size << ", desc_va:" 
         //<< std::hex << desc_va << std::endl;
-  initVariable(enable_stats);
-  
-  //std::cout << "descriptors_:" << (uintptr_t)descriptors_ << std::endl;
 
+  //std::cout << "descriptors_:" << (uintptr_t)descriptors_ << std::endl;
   if(descriptors_) {
     Metadata *metadata = (Metadata*)((uint64_t)descriptors_ - sizeof(Metadata));
     //std::cout << "DescriptorPool metadata:" << std::hex << metadata << std::endl;
@@ -128,12 +136,12 @@ DescriptorPool::DescriptorPool(
           for(int w = 0; w < desc.count_; ++w) {
             auto& word = desc.words_[w];
 
-            if((*word.address_) & Descriptor::kDirtyFlag) {
-                (*word.address_) &= ~Descriptor::kDirtyFlag;
+            if((*word.address_) & BaseDescriptor::kDirtyFlag) {
+                (*word.address_) &= ~BaseDescriptor::kDirtyFlag;
                 word.PersistAddress();
             }
                       
-            uint64_t val = Descriptor::CleanPtr(*word.address_);
+            uint64_t val = BaseDescriptor::CleanPtr(*word.address_);
 
             if(val == (uint64_t)&desc || val == (uint64_t)&word) {
               // If it's a CondCAS descriptor, then MwCAS descriptor wasn't
@@ -165,7 +173,7 @@ DescriptorPool::DescriptorPool(
                 word.PersistAddress();
             }
 
-            uint64_t val = Descriptor::CleanPtr(*word.address_);
+            uint64_t val = BaseDescriptor::CleanPtr(*word.address_);
             RAW_CHECK(val != (uint64_t)&word, "invalid field value");
 
             //this value could be modified by another thread after the status is successfull
@@ -188,11 +196,11 @@ DescriptorPool::DescriptorPool(
         for(int w = 0; w < desc.count_; ++w) {
           int64_t val = *desc.words_[w].address_;
 
-          RAW_CHECK((val & ~Descriptor::kDirtyFlag) !=
-              ((int64_t)&desc | Descriptor::kMwCASFlag),
+          RAW_CHECK((val & ~BaseDescriptor::kDirtyFlag) !=
+              ((int64_t)&desc | BaseDescriptor::kMwCASFlag),
               "invalid word value");
-          RAW_CHECK((val & ~Descriptor::kDirtyFlag) !=
-                ((int64_t)&desc | Descriptor::kCondCASFlag),
+          RAW_CHECK((val & ~BaseDescriptor::kDirtyFlag) !=
+                ((int64_t)&desc | BaseDescriptor::kCondCASFlag),
                 "invalid word value");
         }
       }
@@ -235,12 +243,7 @@ DescriptorPool::DescriptorPool(
   }
 }
 
-DescriptorPool::~DescriptorPool() {
-  MwCASMetrics::Uninitialize();
-}
-
-Descriptor* DescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
-    Descriptor::FreeCallback fc) {
+BaseDescriptor * BaseDescriptorPool::AllocateBaseDescriptor() {
   thread_local DescriptorPartition* tls_part = nullptr;
   if(!tls_part) {
     // Sometimes e.g., benchmark data loading will create new threads when
@@ -257,7 +260,7 @@ Descriptor* DescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
     Thread::RegisterTls((uint64_t*)&tls_part, (uint64_t)nullptr);
   }
 
-  Descriptor* desc = tls_part->free_list;
+  BaseDescriptor * desc = tls_part->free_list;
   while(!desc) {
     // See if we can scavenge some descriptors from the garbage list
     //std::cout << "AllocateDescriptor BumpCurrentEpoch" << std::endl;
@@ -270,17 +273,63 @@ Descriptor* DescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
 
   MwCASMetrics::AddDescriptorAlloc();
   RAW_CHECK(desc, "null descriptor pointer");
+  return desc;
+}
+
+Descriptor* DescriptorPool::AllocateDescriptor(Descriptor::AllocateCallback ac,
+    Descriptor::FreeCallback fc) {
+  Descriptor * desc = (Descriptor *)AllocateBaseDescriptor();
   desc->allocate_callback_ = ac ? ac : Descriptor::DefaultAllocateCallback;
   desc->free_callback_ = fc ? fc : Descriptor::DefaultFreeCallback;
   return desc;
 }
 
-Descriptor::Descriptor(DescriptorPartition* partition) 
-    : owner_partition_(partition) {
-  Initialize();
+BaseDescriptor::BaseDescriptor(DescriptorPartition* partition) 
+    : owner_partition_(partition) {    
+    next_ptr_ = nullptr;
 }
 
-inline void Descriptor::Initialize() {
+void BaseDescriptor::doCleanup() {
+    // There will be no new accessors once we have none of the target fields
+    // contain a pointer to this descriptor; this is the point we can put this
+    // descriptor in the garbage list. Note that multiple threads might be working
+    // on the same descriptor at the same time, and only one thread can push to
+    // the garbage list, so we can only change to kStatusFinished state after no
+    // one is using the descriptor, i.e., in FreeDescriptor(), and let the
+    // original owner (calldepth=0, i.e., the op that calls Cleanup()) push the
+    // descriptor to the garbage list.
+    //
+    // Note: It turns out frequently Protect() and Unprotect() is expensive, so
+    // let the user determine when to do it (e.g., exit/re-enter every X mwcas
+    // operations). Inside any mwcas-related operation we assume it's already
+    // protected.
+    auto s = owner_partition_->garbage_list->Push(this,
+        BaseDescriptor::FreeDescriptor, nullptr);
+    RAW_CHECK(s.ok(), "garbage list push() failed");
+    DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());
+}
+
+void BaseDescriptor::FreeDescriptor(void* context, void* desc) {
+    MARK_UNREFERENCED(context);
+
+    BaseDescriptor* desc_to_free = reinterpret_cast<BaseDescriptor*>(desc);
+    desc_to_free->DeallocateMemory();
+    desc_to_free->Initialize();
+
+    //RAW_CHECK(desc_to_free->status_ == kStatusFinished, "invalid status");
+
+    desc_to_free->next_ptr_ = desc_to_free->owner_partition_->free_list;
+    desc_to_free->owner_partition_->free_list = desc_to_free;
+}
+
+Descriptor::Descriptor(DescriptorPartition* partition)
+    : BaseDescriptor(partition) {
+	status_ = kStatusFinished;
+    count_ = 0;
+    memset(words_, 0, sizeof(WordDescriptor) * kMaxCount);
+}
+
+void Descriptor::Initialize() {
   status_ = kStatusFinished;
   count_ = 0;
   next_ptr_ = nullptr;
@@ -306,7 +355,8 @@ uint32_t Descriptor::AddEntry(uint64_t* addr, uint64_t oldval, uint64_t newval,
   words_[insertpos].address_ = addr;
   words_[insertpos].old_value_ = oldval;
   words_[insertpos].new_value_ = newval;
-  words_[insertpos].status_address_ = &status_;
+  //words_[insertpos].status_address_ = &status_;
+  words_[insertpos].ownDesc_ = this;
   words_[insertpos].recycle_policy_ = recycle_policy;
   ++count_;
   return insertpos;
@@ -323,7 +373,8 @@ uint32_t Descriptor::AllocateAndAddEntry(uint64_t* addr, uint64_t oldval,
   words_[insertpos].old_value_ = oldval;
   words_[insertpos].new_value_ = (uint64_t)allocate_callback_(size);
   RAW_CHECK(words_[insertpos].new_value_, "allocation failed");
-  words_[insertpos].status_address_ = &status_;
+  //words_[insertpos].status_address_ = &status_;
+  words_[insertpos].ownDesc_ = this;
   words_[insertpos].recycle_policy_ = recycle_policy;
   ++count_;
   return insertpos;
@@ -400,14 +451,16 @@ retry:
     RAW_CHECK(wd->address_ == w->address_, "wrong address");
     uint64_t dptr = SetFlags(wd->GetDescriptor(), kMwCASFlag | dirty_flag);
     uint64_t desired =
-      *wd->status_address_ == kStatusUndecided ? dptr : wd->old_value_;
+      //*wd->status_address_ == kStatusUndecided ? dptr : wd->old_value_;
+      wd->ownDesc_->status_ == kStatusUndecided ? dptr : wd->old_value_;
 
     if(*(volatile uint64_t*)wd->address_ != ret) {
       goto retry;
     }
     auto rval = CompareExchange64(
       wd->address_,
-      *wd->status_address_ == kStatusUndecided ? dptr : wd->old_value_,
+      //*wd->status_address_ == kStatusUndecided ? dptr : wd->old_value_,
+      wd->ownDesc_->status_ == kStatusUndecided ? dptr : wd->old_value_,
       ret);
     if(rval == ret) {
       if(desired == dptr) {
@@ -818,24 +871,7 @@ bool Descriptor::Cleanup() {
   } else {
     MwCASMetrics::AddFailedUpdate();
   }
-
-  // There will be no new accessors once we have none of the target fields
-  // contain a pointer to this descriptor; this is the point we can put this
-  // descriptor in the garbage list. Note that multiple threads might be working
-  // on the same descriptor at the same time, and only one thread can push to
-  // the garbage list, so we can only change to kStatusFinished state after no
-  // one is using the descriptor, i.e., in FreeDescriptor(), and let the
-  // original owner (calldepth=0, i.e., the op that calls Cleanup()) push the
-  // descriptor to the garbage list.
-  //
-  // Note: It turns out frequently Protect() and Unprotect() is expensive, so
-  // let the user determine when to do it (e.g., exit/re-enter every X mwcas
-  // operations). Inside any mwcas-related operation we assume it's already
-  // protected.
-  auto s = owner_partition_->garbage_list->Push(this,
-      Descriptor::FreeDescriptor, nullptr);
-  RAW_CHECK(s.ok(), "garbage list push() failed");
-  DCHECK(owner_partition_->garbage_list->GetEpoch()->IsProtected());
+  doCleanup();
   return status_ == kStatusSucceeded;
 }
 
@@ -891,17 +927,6 @@ void Descriptor::DeallocateMemory() {
   count_ = 0;
 }
 
-void Descriptor::FreeDescriptor(void* context, void* desc) {
-  MARK_UNREFERENCED(context);
 
-  Descriptor* desc_to_free = reinterpret_cast<Descriptor*>(desc);
-  desc_to_free->DeallocateMemory();
-  desc_to_free->Initialize();
-
-  RAW_CHECK(desc_to_free->status_ == kStatusFinished, "invalid status");
-
-  desc_to_free->next_ptr_ = desc_to_free->owner_partition_->free_list;
-  desc_to_free->owner_partition_->free_list = desc_to_free;
-}
 
 } // namespace pmwcas
