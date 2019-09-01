@@ -119,36 +119,73 @@ bool FetchStoreStore::recoverCas(FASASCasPtr* shareAddr, FASASCasPtr* privateAdd
 }
 
 
-/*uint64_t FetchStoreStore::processByMwcas(FASASCasPtr* targetAddr, FASASCasPtr* storeAddr, 
-	   uint64_t newval, FASASDescriptorPool* fasasDescPool)
+uint64_t FetchStoreStore::fasas(uint64_t * shareAddr, uint64_t * privateAddr, 
+   uint64_t newShareVal, uint32_t locId, uint16_t processId, 
+   OptmizedFASASDescriptorPool * fasasDescPool)
 {
+    OptmizedFASASDescriptor* descriptor = fasasDescPool->getDescriptor(processId, locId);
+    CHECK_NOTNULL(descriptor);
+
+    descriptor->setSharedAddress(shareAddr);
+    descriptor->setPrivateAddress(privateAddr);
+    descriptor->setOpType(FASASDescriptor::FASASOp);
+        
     while(1) {
-        epochProtect(fasasDescPool);
-                
-		uint64_t targetValue = targetAddr->getValueProtectedForMwcas(
-            FASASDescriptor::SHARE_VAR_POS);
-        RAW_CHECK(Descriptor::IsCleanPtr(targetValue), "targetValue not valid");
-		uint64_t storeValue = storeAddr->getValueProtectedForMwcas(
-            FASASDescriptor::STORE_VAR_POS);
-        RAW_CHECK(Descriptor::IsCleanPtr(storeValue), "storeValue not valid");
-		
-		FASASDescriptor* descriptor = fasasDescPool->AllocateDescriptor();
-		CHECK_NOTNULL(descriptor);
-		
-		descriptor->addEntryByPos((uint64_t*)(targetAddr), targetValue,
-			newval, FASASDescriptor::SHARE_VAR_POS);
-		descriptor->addEntryByPos((uint64_t*)(storeAddr), storeValue,
-			targetValue, FASASDescriptor::STORE_VAR_POS);
+        uint64_t oldShareValue = OptmizedFASASDescriptor::getValueProtectedOfSharedVar(
+                shareAddr, *fasasDescPool, locId, processId);
 	
-		if(descriptor->processByMwcas(0, FASASDescriptor::INVALID_VAR_POS)) {
-            RAW_CHECK(targetValue == storeAddr->getValueProtectedForMwcas(
-                FASASDescriptor::STORE_VAR_POS), 
+		if(descriptor->process(oldShareValue, newShareVal, *fasasDescPool, locId)) {
+            RAW_CHECK(oldShareValue == OptmizedFASASDescriptor::getValueOfPrivateVar(privateAddr),
                 "old share value not equal to private value");
-			return targetValue;
+			return oldShareValue;
 		}
 	}
+}
 
-} */  
+uint64_t FetchStoreStore::read(uint64_t * shareAddr, uint32_t locId, uint16_t processId,
+	   OptmizedFASASDescriptorPool * fasasDescPool)
+{
+    OptmizedFASASDescriptor* descriptor = fasasDescPool->getDescriptor(processId, locId);
+    CHECK_NOTNULL(descriptor);
+
+    descriptor->setSharedAddress(shareAddr);
+    
+    return OptmizedFASASDescriptor::getValueProtectedOfSharedVar(
+                shareAddr, *fasasDescPool, locId, processId);
+}
+   
+bool FetchStoreStore::dcas(uint64_t * shareAddr, uint64_t * privateAddr, 
+   uint64_t oldShareVal, uint64_t newShareVal,
+   uint64_t newPrivateVal, uint32_t locId, uint16_t processId, 
+   OptmizedFASASDescriptorPool * fasasDescPool)
+{
+    OptmizedFASASDescriptor* descriptor = fasasDescPool->getDescriptor(processId, locId);
+    CHECK_NOTNULL(descriptor);
+
+    descriptor->setSharedAddress(shareAddr);
+    descriptor->setPrivateAddress(privateAddr);
+    
+    descriptor->setOpType(FASASDescriptor::setOpTypeFlg(
+        newPrivateVal, FASASDescriptor::DoubleCASOp));
+
+    return descriptor->process(oldShareVal, newShareVal, *fasasDescPool, locId);
+}
+   
+bool FetchStoreStore::recoverCas(uint64_t * shareAddr, uint64_t * privateAddr, 
+   uint64_t oldShareVal, uint64_t newShareVal, 
+   uint32_t locId, uint16_t processId,
+   OptmizedFASASDescriptorPool * fasasDescPool)
+{
+    OptmizedFASASDescriptor* descriptor = fasasDescPool->getDescriptor(processId, locId);
+    CHECK_NOTNULL(descriptor);
+
+    descriptor->setSharedAddress(shareAddr);
+    descriptor->setPrivateAddress(privateAddr);
+
+    descriptor->setOpType(FASASDescriptor::RecoverCASOp);
+
+    return descriptor->process(oldShareVal, newShareVal, *fasasDescPool, locId);
+}
 
 void FetchStoreStore::epochProtect(BaseDescriptorPool* descPool) {
     if(++epochs_ == kEpochThreshold_) {

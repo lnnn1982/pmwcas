@@ -115,6 +115,7 @@ struct MSQueueTestBase : public BaseMwCas {
         for(uint32_t i = 0; i < FLAGS_node_size; ++i) {
             //change the ptr to a unsigned long number then add offset to that number
             QueueNode * pNode = (QueueNode *)((uintptr_t)nodePtr_ + getNodeSize()*i);
+            pNode->memIndex_ = i+1;
             if(pNode->isBusy_ == 1) {
                 busyNodeCnt++;
             }
@@ -306,10 +307,11 @@ struct MSQueueTestBase : public BaseMwCas {
 
     uint64_t getQueueSize() {
         uint64_t size = 0; 
-        QueueNode * curNode = (*queueHead_);
+        QueueNode * curNode = (QueueNode *)((uint64_t)(*queueHead_) 
+            & (OptmizedFASASDescriptor::ActualValueFlg));
         while(curNode) {
             size++;
-            curNode = curNode->next_;
+            curNode = (QueueNode *)((uint64_t)(curNode->next_) & (OptmizedFASASDescriptor::ActualValueFlg));
         }
 
         return size;
@@ -448,7 +450,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
 
     void doRecoverEnq(QueueNode ** threadEnqAddr, QueueNode * enqNode) {
         if(enqNode->isBusy_ == 1) {
-            rawEnque(threadEnqAddr);
+            rawEnque(threadEnqAddr, 0);
         }
         else {
             *threadEnqAddr = NULL;
@@ -503,10 +505,10 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         //printOneNode(newNode);
         NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
 
-        rawEnque(threadEnqAddr);
+        rawEnque(threadEnqAddr, thread_index);
     }
 
-    virtual void rawEnque(QueueNode ** threadEnqAddr) {
+    virtual void rawEnque(QueueNode ** threadEnqAddr, size_t thread_index) {
         msQueue_->enq(threadEnqAddr);
     }
     
@@ -586,7 +588,7 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
         new(msQueue_) MSQueueByPMWCasV2(queueHead_, queueTail_, fasasDescPool_);
     }
 
-    virtual void rawEnque(QueueNode ** threadEnqAddr) {
+    virtual void rawEnque(QueueNode ** threadEnqAddr, size_t thread_index) {
         msQueue_->enq(threadEnqAddr);
     }
 
@@ -626,7 +628,7 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
         //printOneNode(newNode);
         NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
 
-        rawEnque(threadEnqAddr);
+        rawEnque(threadEnqAddr, thread_index);
     }
     
     bool dequeue(size_t thread_index) {
@@ -650,6 +652,104 @@ struct MSQueuePMWCasV2Test : public MSQueueTPMWCasest {
     FASASDescriptorPool* fasasDescPool_;
 
     MSQueueByPMWCasV2 * msQueue_;
+
+};
+
+
+
+//MSQueuePMWCasV3Test begin///////////////////////////////////////////////////////////////////////////
+
+struct MSQueuePMWCasV3Test : public MSQueueTPMWCasest {
+    uint64_t getDescriptorSizeSize() {
+        return sizeof(OptmizedFASASDescriptor) * FLAGS_descriptor_pool_size;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+        OptmizedFASASDescriptor * poolDesc = (OptmizedFASASDescriptor*)((
+            uintptr_t)segment->GetMapAddress() +
+            sizeof(DescriptorPool::Metadata));
+	    std::cout << "fasas descriptor addr:" << poolDesc << std::endl;
+
+        fasasDescPool_ = reinterpret_cast<OptmizedFASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(OptmizedFASASDescriptorPool)));
+        new(fasasDescPool_) OptmizedFASASDescriptorPool(
+            FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, nullptr, FLAGS_enable_stats);
+    }
+
+    virtual BaseDescriptorPool* getDescPool() {
+        return nullptr;
+    }
+
+    void initMSQueue() {
+        msQueue_ = reinterpret_cast<MSQueueByPMWCasV3*>(Allocator::Get()->Allocate(
+            sizeof(MSQueueByPMWCasV3)));
+        new(msQueue_) MSQueueByPMWCasV3(queueHead_, queueTail_, fasasDescPool_);
+    }
+
+    virtual void rawEnque(QueueNode ** threadEnqAddr, size_t thread_index) {
+        msQueue_->enq(threadEnqAddr, thread_index);
+    }
+
+    void recover(size_t thread_index) {
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        QueueNode * enqNode = (*threadEnqAddr);
+
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+        QueueNode * deqNode = (*threadDeqAddr);
+
+        RAW_CHECK(!(enqNode != NULL && deqNode != NULL), 
+            "MSQueuePMWCasV2Test::recover deq node and enq node not null at the same time");
+
+        if(enqNode != NULL) {
+            //LOG(ERROR) << "recoverEnq thread_index:" << thread_index << " find one enqNode "
+                //<< enqNode << " isBusy_" << enqNode->isBusy_ << std::endl;
+            doRecoverEnq(threadEnqAddr, enqNode);
+        }
+
+        if(deqNode != NULL) {
+            //LOG(ERROR) << "recoverDeq thread_index:" << thread_index << " find one deqNode "
+                //<< deqNode << " isBusy_" << deqNode->isBusy_ << std::endl;
+            doRecoverDeq(thread_index, threadDeqAddr, deqNode);
+        }
+    }
+
+    void enqueue(size_t thread_index, uint64_t * pData = NULL) {
+        QueueNode * newNode = allocateNode(thread_index);
+
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        *threadEnqAddr = newNode;
+        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
+
+        newNode->next_ = NULL;
+        newNode->pData_ = pData;
+        newNode->isBusy_= 1;
+        //printOneNode(newNode);
+        NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
+
+        rawEnque(threadEnqAddr, thread_index);
+    }
+    
+    bool dequeue(size_t thread_index) {
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+
+        msQueue_->deq(threadDeqAddr, thread_index);
+
+        QueueNode * deqNode = (*threadDeqAddr);
+        if(deqNode != NULL) {
+            cleanDeqNode(thread_index, deqNode);
+            *threadDeqAddr = NULL;
+            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+
+            return true;
+        }
+
+        return false;
+    }
+
+
+    OptmizedFASASDescriptorPool * fasasDescPool_;
+
+    MSQueueByPMWCasV3 * msQueue_;
 
 };
 
@@ -1076,6 +1176,11 @@ void runBenchmark() {
     else if(FLAGS_queue_impl_type == 2) {
         std::cout << "************MSQueuePMWCasV2Test test***************" << std::endl;
         MSQueuePMWCasV2Test test;
+        doTest(test);
+    }
+    else if(FLAGS_queue_impl_type == 4) {
+        std::cout << "************MSQueuePMWCasV3Test test***************" << std::endl;
+        MSQueuePMWCasV3Test test;
         doTest(test);
     }
     else if(FLAGS_queue_impl_type == 3) {

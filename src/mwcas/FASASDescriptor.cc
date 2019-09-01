@@ -111,26 +111,34 @@ bool FASASDescriptor::process()
         return Cleanup(false);
     }
 
-    persistTargetAddrValue(word_.address_);
+    //persistTargetAddrValue(word_.address_);
+    NVRAM::Flush(sizeof(uint64_t), (void*)word_.address_);
     persistSuccStatus();
 
     //the order can't change. When set private value, make sure status is already set.
-    changeShareValue();
+    //changeShareValue();
+    changeShareValueWithoutFlush();
     changePrivateValueSucc();
 
     return Cleanup(true);
 }
 
 void FASASDescriptor::helpProcess() {
-    persistTargetAddrValue(word_.address_);
+    if(isPrivateValueSet() == 1) return;
+    
+    //persistTargetAddrValue(word_.address_);
+    NVRAM::Flush(sizeof(uint64_t), (void*)word_.address_);
     persistSuccStatus();
 
-    changeShareValue();
+    //changeShareValue();
+    if(isPrivateValueSet() == 1) return;
+    changeShareValueWithoutFlush();
 }
 
 uint64_t FASASDescriptor::addDescriptorToShareVar()
 {
-    uint64_t descptr = BaseDescriptor::SetFlags(this, BaseDescriptor::kMwCASFlag | BaseDescriptor::kDirtyFlag);
+    //uint64_t descptr = BaseDescriptor::SetFlags(this, BaseDescriptor::kMwCASFlag | BaseDescriptor::kDirtyFlag);
+    uint64_t descptr = BaseDescriptor::SetFlags(this, BaseDescriptor::kMwCASFlag);
 
 retry:
     uint64_t ret = CompareExchange64(word_.address_, descptr, word_.old_value_);
@@ -158,28 +166,48 @@ void FASASDescriptor::changeShareValue() {
     persistTargetAddrValue(word_.address_);
 }
 
-void FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
+void FASASDescriptor::changeShareValueWithoutFlush() {
+	uint64_t val = word_.new_value_;
+
+    uint64_t descptr = SetFlags(this, kMwCASFlag);
+    uint64_t addrVal = *(word_.address_);
+    if(addrVal == descptr) {
+        CompareExchange64(word_.address_, val, descptr);
+    }
+}
+
+uint64_t FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
     uint64_t val = *address;
     if(val & kDirtyFlag) {
         NVRAM::Flush(sizeof(uint64_t), (void*)address);
         CompareExchange64(address, val & ~kDirtyFlag, val);
+        val = val & ~kDirtyFlag;
     }
+
+    return val;
 }
 
 void FASASDescriptor::persistSuccStatus() {
     uint64_t cleanPrivateAddr = (uint64_t)getPrivateAddress();
-    uint64_t dirtyStatusAddr = cleanPrivateAddr|StatusFlg|StatusDirtyFlg;
+    //uint64_t dirtyStatusAddr = cleanPrivateAddr|StatusFlg|StatusDirtyFlg;
+    uint64_t StatusAddr = cleanPrivateAddr|StatusFlg;
+
     // Switch to the final state, the MwCAS concludes after this point
     if((uint64_t)privateAddress_ == cleanPrivateAddr) {
-        CompareExchange64((uint64_t *)&privateAddress_, 
-            dirtyStatusAddr, cleanPrivateAddr);
-    }
+        //CompareExchange64((uint64_t *)&privateAddress_, 
+            //dirtyStatusAddr, cleanPrivateAddr);
 
-    if(isStatusDirty() == 1) {
+        CompareExchange64((uint64_t *)&privateAddress_, 
+            StatusAddr, cleanPrivateAddr);
+    }
+    if(isPrivateValueSet() == 1) return;
+    NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
+
+    /*if(isStatusDirty() == 1) {
 	    NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
 	    CompareExchange64((uint64_t *)&privateAddress_, 
 	       cleanPrivateAddr|StatusFlg, dirtyStatusAddr);
-    }
+    }*/
 }
 
 void FASASDescriptor::changePrivateValueSucc() {
@@ -196,9 +224,11 @@ void FASASDescriptor::changePrivateValueSucc() {
 
     NVRAM::Flush(sizeof(uint64_t), (void*)privateAddrss);
 
-    uint64_t tmpPrivateAddr = (uint64_t)(privateAddress_);
+    uint64_t tmpPrivateAddr = (uint64_t)((uint64_t)privateAddrss|StatusFlg);
     CompareExchange64((uint64_t *)&privateAddress_, 
 	       tmpPrivateAddr|IsPrivateValueSetFlg, tmpPrivateAddr);
+
+    //privateAddress_ = (uint64_t *)(tmpPrivateAddr|IsPrivateValueSetFlg);
 
     NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
 }
@@ -214,30 +244,6 @@ bool FASASDescriptor::Cleanup(bool isSuc) {
   
   return isSuc;
 }
-
-/*void FASASDescriptor::changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
-    uint32_t processPos)
-{
-    bool succeeded = (status_ == kStatusSucceeded);
-    uint64_t cmpDescptr = succeeded ? descptr & ~kDirtyFlag : descptr;
-    for(uint32_t i = 0; i < count_; i++) {
-        if(calldepth != 0 && i != processPos) {
-            //help thread only change the address of processing;
-            continue;
-        }
-    
-	    WordDescriptor* wd = &words_[i];
-	    uint64_t val = succeeded ? wd->new_value_ : wd->old_value_;
-	    val |= kDirtyFlag;
-
-        uint64_t addrVal = *(wd->address_);
-        if(addrVal == cmpDescptr) {
-            CompareExchange64(wd->address_, val, cmpDescptr);
-        }
-
-        persistTargetAddrValue(wd->address_);
-    }
-}*/
 
 FASASDescriptorPool::FASASDescriptorPool(uint32_t pool_size, uint32_t partition_count, 
     FASASDescriptor* desc_va, bool enable_stats)
@@ -315,10 +321,10 @@ void FASASDescriptorPool::recoverForFASAS(uint64_t status,
     FASASDescriptor & descriptor, uint64_t& redo_words,
     uint64_t& undo_words) 
 {
-    if((*descriptor.word_.address_) & BaseDescriptor::kDirtyFlag) {
+    /*if((*descriptor.word_.address_) & BaseDescriptor::kDirtyFlag) {
         (*descriptor.word_.address_) &= ~BaseDescriptor::kDirtyFlag;
         descriptor.word_.PersistAddress();
-    }
+    }*/
 
     uint64_t val = Descriptor::CleanPtr(*descriptor.word_.address_);
     if(status == FASASDescriptor::SuccStatus) {

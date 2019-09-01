@@ -32,6 +32,7 @@ struct RecoverCasTestBase : public BaseMwCas {
             << ", size of BaseDescriptor:" << std::dec << sizeof(BaseDescriptor)
             << ", size of BaseWordDescriptor:" << std::dec << sizeof(BaseDescriptor::BaseWordDescriptor)
             << ", size of Descriptor:" << std::dec << sizeof(Descriptor)
+            << ", size of OptimizedFASASDescriptor:" << std::dec << sizeof(OptmizedFASASDescriptor)
             << ", arraySize:" << std::dec << arraySize 
             << ", extraSize:" << std::dec << extraSize << std::endl;
 
@@ -73,7 +74,47 @@ struct RecoverCasTestBase : public BaseMwCas {
         checkAfterTest();
     }
 
-    virtual void checkAfterTest() = 0;
+    virtual void checkAfterTest() {
+        //printTestArray();
+        // Check the array for correctness
+        unique_ptr_t<int64_t> found = alloc_unique<int64_t>(
+            sizeof(int64_t) * FLAGS_array_size);
+
+        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+            found.get()[i] = 0;
+        }
+
+        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+            uint64_t value = getTestArrayValue(i);
+            //std::cout << "i:" << i << ", value:" << std::dec << value << std::endl;
+        
+            uint32_t idx =
+                uint32_t((value % (4 * FLAGS_array_size)) / 4);
+            CHECK(idx >= 0 && idx < FLAGS_array_size) <<
+              "idx value error: " << idx;
+
+            //std::cout << "i:" << i << ", idx:" << std::dec << idx << std::endl;
+            
+            found.get()[idx]++;
+        }
+
+        uint32_t missing = 0;
+        uint32_t duplicated = 0;
+        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+            if(found.get()[i] == 0)  {
+                missing++;
+                std::cout << "missing:" << i << std::endl;
+            }
+            if(found.get()[i] > 1) {
+                duplicated++;
+                std::cout << "duplicated:" << i << std::endl;
+            }
+        }
+
+        CHECK(0 == missing && 0 == duplicated) <<
+            "Failed final sanity test, missing: " << missing << " duplicated: " <<
+            duplicated;
+    }
 
     void Main(size_t thread_index) {
         auto s = MwCASMetrics::ThreadInitialize();
@@ -111,6 +152,9 @@ struct RecoverCasTestBase : public BaseMwCas {
     
     virtual bool doRecoverCAS(uint64_t thread_index, uint64_t targetIdx) = 0;
 
+    virtual uint64_t getTestArrayValue(uint32_t arrayIdx) = 0;
+
+
     FetchStoreStore fetchStoreStore_;
     uint64_t * test_array_;
 };
@@ -126,10 +170,13 @@ struct RecoverCasByFASAS : public RecoverCasTestBase {
     }
 
     virtual uint64_t getExtraSize() {
-        return 0;
+        return sizeof(uint64_t) * FLAGS_threads;
     }
     
     virtual void initExtra(SharedMemorySegment* segment, uint64_t extraOffset) {
+        privatePtr_ = (uint64_t*)((uintptr_t)segment->GetMapAddress() 
+            + extraOffset);
+        std::cout << "privatePtr_:" << privatePtr_ << std::endl;
     }
 
     virtual BaseDescriptorPool* getDescPool() {
@@ -138,8 +185,7 @@ struct RecoverCasByFASAS : public RecoverCasTestBase {
     
     virtual bool doRecoverCAS(uint64_t thread_index, uint64_t targetIdx) 
     {
-        uint64_t privateValue = 0;
-        FASASCasPtr* privateAddr = (FASASCasPtr*)(&privateValue);
+        FASASCasPtr* privateAddr = (FASASCasPtr*)(privatePtr_+targetIdx);
         
         FASASCasPtr* shareAddr = (FASASCasPtr*)test_array_+targetIdx;
         uint64_t oldVal = shareAddr->getValueProtectedOfSharedVar();
@@ -147,62 +193,86 @@ struct RecoverCasByFASAS : public RecoverCasTestBase {
         
         bool ret = fetchStoreStore_.recoverCas(shareAddr, privateAddr,
             oldVal, newVal, fasasDescPool_);
-        //if(ret) {
-            //RAW_CHECK(privateValue == 1, "privateValue is wrong");
-        //}
+        if(ret) {
+            RAW_CHECK(*(privatePtr_+targetIdx) == 1, "privateValue is wrong");
+        }
 
         return ret;
     }
 
-    void checkAfterTest() {
-        //printTestArray();
-        // Check the array for correctness
-        unique_ptr_t<int64_t> found = alloc_unique<int64_t>(
-            sizeof(int64_t) * FLAGS_array_size);
 
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            found.get()[i] = 0;
-        }
-
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            uint32_t idx =
-                uint32_t((uint64_t(test_array_[i]) % (4 * FLAGS_array_size)) / 4);
-            CHECK(idx >= 0 && idx < FLAGS_array_size) <<
-              "idx value error: " << idx;
-
-            //std::cout << "i:" << i << ", idx:" << std::dec << idx << std::endl;
-            
-            found.get()[idx]++;
-        }
-
-        uint32_t missing = 0;
-        uint32_t duplicated = 0;
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            if(found.get()[i] == 0)  {
-                missing++;
-                std::cout << "missing:" << i << std::endl;
-            }
-            if(found.get()[i] > 1) {
-                duplicated++;
-                std::cout << "duplicated:" << i << std::endl;
-            }
-        }
-
-        CHECK(0 == missing && 0 == duplicated) <<
-            "Failed final sanity test, missing: " << missing << " duplicated: " <<
-            duplicated;
-
+    virtual uint64_t getTestArrayValue(uint32_t arrayIdx) {
+        FASASCasPtr* ptr = (FASASCasPtr*)(test_array_+arrayIdx);
+        return ptr->getValueProtectedOfSharedVar();
     }
 
     FASASDescriptorPool* fasasDescPool_;
+    uint64_t * privatePtr_;
     
 };
 
+struct RecoverCasByOptimizedFASAS : public RecoverCasTestBase {
+
+    uint64_t getDescriptorSize() {
+        return sizeof(OptmizedFASASDescriptor) * FLAGS_descriptor_pool_size;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+        OptmizedFASASDescriptor * poolDesc = (OptmizedFASASDescriptor*)((
+            uintptr_t)segment->GetMapAddress() +
+            sizeof(DescriptorPool::Metadata));
+	    std::cout << "fasas descriptor addr:" << poolDesc << std::endl;
+
+        fasasDescPool_ = reinterpret_cast<OptmizedFASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(OptmizedFASASDescriptorPool)));
+        new(fasasDescPool_) OptmizedFASASDescriptorPool(
+            FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, nullptr, FLAGS_enable_stats);
+    }
+
+    virtual uint64_t getExtraSize() {
+        return sizeof(uint64_t) * FLAGS_threads;
+    }
+    
+    virtual void initExtra(SharedMemorySegment* segment, uint64_t extraOffset) {
+        privatePtr_ = (uint64_t*)((uintptr_t)segment->GetMapAddress() 
+            + extraOffset);
+        std::cout << "privatePtr_:" << privatePtr_ << std::endl;
+    }
+
+    virtual BaseDescriptorPool* getDescPool() {
+        return NULL;
+    }
+    
+    virtual bool doRecoverCAS(uint64_t thread_index, uint64_t targetIdx) 
+    {
+        uint64_t * shareAddr = test_array_+targetIdx;
+        uint64_t oldVal = fetchStoreStore_.read(shareAddr,
+            (uint32_t)targetIdx, (uint16_t)thread_index, fasasDescPool_);
+        uint64_t newVal = oldVal + 4 * FLAGS_array_size;
+
+        uint64_t * privatePtr = privatePtr_+thread_index;
+        *privatePtr = 0;
+        bool ret = fetchStoreStore_.recoverCas(shareAddr, privatePtr,
+            oldVal, newVal, (uint32_t)targetIdx, (uint16_t)thread_index, fasasDescPool_);    
+        if(ret) {
+            RAW_CHECK(*privatePtr == 1, "privateValue is wrong");
+        }
+
+        return ret;
+    }
 
 
+    virtual uint64_t getTestArrayValue(uint32_t arrayIdx) {
+        return fetchStoreStore_.read(test_array_+arrayIdx,
+            (uint32_t)arrayIdx, 0, fasasDescPool_);
+    }
+
+    OptmizedFASASDescriptorPool * fasasDescPool_;
+    uint64_t * privatePtr_;
+    
+};
 
 struct RecoverCasBySeq : public RecoverCasTestBase {
-
     uint64_t getDescriptorSize() {
         return 0;
     }
@@ -210,7 +280,6 @@ struct RecoverCasBySeq : public RecoverCasTestBase {
     void initDescriptorPool(SharedMemorySegment* segment) {
     }
 
-        
     virtual BaseDescriptorPool* getDescPool() {
         return nullptr;
     }
@@ -245,50 +314,10 @@ struct RecoverCasBySeq : public RecoverCasTestBase {
         return ret;
     }
 
-    void checkAfterTest() {
-        //printTestArray();
-        // Check the array for correctness
-        unique_ptr_t<int64_t> found = alloc_unique<int64_t>(
-            sizeof(int64_t) * FLAGS_array_size);
-
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            found.get()[i] = 0;
-        }
-
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            uint64_t value = (casOpArray_+i)->readValue();
-            //std::cout << "i:" << i << ", value:" << std::dec << value << std::endl;
-        
-            uint32_t idx =
-                uint32_t((value % (4 * FLAGS_array_size)) / 4);
-            CHECK(idx >= 0 && idx < FLAGS_array_size) <<
-              "idx value error: " << idx;
-
-            //std::cout << "i:" << i << ", idx:" << std::dec << idx << std::endl;
-            
-            found.get()[idx]++;
-        }
-
-        uint32_t missing = 0;
-        uint32_t duplicated = 0;
-        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
-            if(found.get()[i] == 0)  {
-                missing++;
-                std::cout << "missing:" << i << std::endl;
-            }
-            if(found.get()[i] > 1) {
-                duplicated++;
-                std::cout << "duplicated:" << i << std::endl;
-            }
-        }
-
-        CHECK(0 == missing && 0 == duplicated) <<
-            "Failed final sanity test, missing: " << missing << " duplicated: " <<
-            duplicated;
-
+    virtual uint64_t getTestArrayValue(uint32_t arrayIdx) {
+        return (casOpArray_+arrayIdx)->readValue();;
     }
-
-
+    
     uint64_t * processInfoArray_;
     RCAS * casOpArray_;
 };
@@ -324,7 +353,13 @@ void runBenchmark() {
         doTest(test);
     }
     else if (FLAGS_RCAS_TYPE == 1){
-        std::cout << "************Recover CAS using Seq***************" << std::endl;
+        std::cout << "************Recover CAS using optimised FASAS***************" << std::endl;
+        RecoverCasByOptimizedFASAS test;
+        doTest(test);
+
+    }
+    else if (FLAGS_RCAS_TYPE == 2){
+        std::cout << "************Recover CAS using seq***************" << std::endl;
         RecoverCasBySeq test;
         doTest(test);
 

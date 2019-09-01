@@ -91,7 +91,7 @@ public:
         return (uint64_t)privateAddress_ & StatusDirtyFlg;
     }
 
-    
+    static uint64_t persistTargetAddrValue(uint64_t* address);
 
     
 
@@ -99,17 +99,18 @@ private:
     friend class FASASDescriptorPool;
     
     uint64_t addDescriptorToShareVar();
-    void persistTargetAddrValue(uint64_t* address);
+    
     void changeShareValue();
+    void changeShareValueWithoutFlush();
+    
     void changePrivateValueSucc();
-    /*void changeTargetAddressValue(uint64_t descptr, uint32_t calldepth, 
-        uint32_t processPos);*/
+
     void persistSuccStatus();
 
     BaseDescriptor::BaseWordDescriptor word_;
     uint64_t opType_;
     
-    uint64_t* privateAddress_;
+    volatile uint64_t* privateAddress_;
     //uint8_t status_;
     //bool isPrivateAddrSet_;
 
@@ -148,39 +149,10 @@ public:
         value_ = T(desc);
     }
 
-    /*uint64_t getValueProtectedForMwcas(uint32_t processPos) {
-        MwCASMetrics::AddRead();
-retry:
-        uint64_t val = (uint64_t)MwcTargetField<T>::value_;
-
-        if(val & MwcTargetField<T>::kCondCASFlag) {
-            RAW_CHECK((val & MwcTargetField<T>::kDirtyFlag) == 0, "dirty flag set on CondCAS descriptor");
-
-            Descriptor::WordDescriptor* wd =
-                (Descriptor::WordDescriptor*)Descriptor::CleanPtr(val);
-            uint64_t dptr =
-                Descriptor::SetFlags(wd->GetDescriptor(), MwcTargetField<T>::kMwCASFlag | MwcTargetField<T>::kDirtyFlag);
-            CompareExchange64(
-                wd->address_,
-                *wd->status_address_ == Descriptor::kStatusUndecided ?
-                dptr : wd->old_value_,
-                val);
-              goto retry;
-        }
-
-        if(val & MwcTargetField<T>::kMwCASFlag) {
-            // While the address contains a descriptor, help along completing the CAS
-            FASASDescriptor* desc = (FASASDescriptor*)Descriptor::CleanPtr(val);
-            RAW_CHECK(desc, "invalid descriptor pointer");
-            desc->processByMwcas(1, processPos);
-            goto retry;
-        }
-
-        return getValueWithDirtyFlg(val);
-    }*/
-
+    //when no dirty flag, no need to flush. 
+    //Because if it is not descriptor, the descriptor is already flushed.
     uint64_t getValueProtectedOfSharedVar() {
-        MwCASMetrics::AddRead();
+        //MwCASMetrics::AddRead();
 retry:
         uint64_t val = (uint64_t)value_;
 
@@ -198,8 +170,7 @@ retry:
     }
     
     uint64_t getValueOfPrivateVar() {
-        uint64_t val = (uint64_t)value_;
-        return val;
+        return value_;
     }
 
     uint64_t getValueWithDirtyFlg(uint64_t val) {

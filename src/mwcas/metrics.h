@@ -14,6 +14,7 @@ class DescriptorPool;
 struct MwCASMetrics {
   friend class DescriptorPool;
   friend class BaseDescriptorPool;
+  friend class OptmizedFASASDescriptorPool;
  public:
   MwCASMetrics& operator+=(const MwCASMetrics& other) {
     succeeded_update_count += other.succeeded_update_count;
@@ -89,6 +90,7 @@ struct MwCASMetrics {
   }
 
   static Status Uninitialize() {
+    std::cout << "***********************metrics unitialize" << std::endl;
     if(enabled) return MwCASMetrics::instance.Uninitialize();
     return Status::OK();
   }

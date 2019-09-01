@@ -12,6 +12,7 @@ public:
     QueueNode * volatile next_;
     QueueNode * poolNext_;
     uint64_t isBusy_;
+    uint64_t memIndex_;
 };
 
 class MSQueue {     
@@ -58,6 +59,25 @@ private:
     FASASDescriptorPool * descPool_;
 
 };
+
+
+class MSQueueByPMWCasV3 : public MSQueue{
+public:
+    MSQueueByPMWCasV3(QueueNode ** phead, QueueNode ** ptail, OptmizedFASASDescriptorPool * descPool) 
+        : MSQueue(phead, ptail), fetchSS_(), descPool_(descPool) {
+    }
+
+    void enq(QueueNode ** privateAddr, size_t thread_index);
+    void deq(QueueNode ** privateAddr, size_t thread_index);
+
+
+private:
+    FetchStoreStore fetchSS_;
+    OptmizedFASASDescriptorPool * descPool_;
+
+};
+
+
 
 
 class alignas(kCacheLineSize) OrgCasNode : public QueueNode {

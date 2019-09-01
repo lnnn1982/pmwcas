@@ -28,6 +28,9 @@ bool RCAS::Cas(uint64_t oldValue, uint64_t newValue, uint64_t seq, uint64_t proc
 
     if(existValue != oldValue) return false;
 
+    //need this. because last suc thread may fail without flushing the addr
+    NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));
+    
     uint64_t otherProcessNewInfo = (existSeqId << 56) | 1;
     uint64_t otherProcessOldInfo = (existSeqId << 56) | 0;
 
@@ -56,8 +59,11 @@ bool RCAS::Cas(uint64_t oldValue, uint64_t newValue, uint64_t seq, uint64_t proc
 
 }
 
+//need to flush because the reader may use this value. If it is not flushed,
+//when recovering, it maybe back to the original value.
 uint64_t RCAS::readValue() {
     uint64_t existTargetValue = (*targetAddr_);
+    NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));
     return existTargetValue & valueFlg;
 }
 

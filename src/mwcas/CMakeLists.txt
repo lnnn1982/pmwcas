@@ -2,11 +2,13 @@ set(MWCAS_HEADERS
   metrics.h
   mwcas.h
   FASASDescriptor.h
+  OptmizedFASASDescriptor.h
 )
 
 set(MWCAS_SOURCES
   mwcas.cc
   FASASDescriptor.cc
+  OptmizedFASASDescriptor.cc
 )
 
 add_library(mwcas STATIC ${MWCAS_SOURCES} ${MWCAS_HEADERS})
