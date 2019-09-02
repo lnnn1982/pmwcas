@@ -3,6 +3,7 @@
 #include "mwcas_common.h"
 #include "PMWCasOpWrapper.h"
 #include "fetchStoreStore.h"
+#include "RecoverCAS.h"
 
 namespace pmwcas {
 
@@ -76,6 +77,25 @@ private:
     OptmizedFASASDescriptorPool * descPool_;
 
 };
+
+
+class MSQueueByRecoverCAS : public MSQueue{
+public:
+    MSQueueByRecoverCAS(QueueNode ** phead, QueueNode ** ptail, RCAS * casOpArray) 
+        : MSQueue(phead, ptail), casOpArray_(casOpArray) {
+    }
+
+    void enq(QueueNode ** privateAddr, size_t thread_index);
+    void deq(QueueNode ** privateAddr, size_t thread_index);
+
+
+private:
+   RCAS * casOpArray_;
+
+};
+
+
+
 
 
 

@@ -115,7 +115,16 @@ struct MSQueueTestBase : public BaseMwCas {
         for(uint32_t i = 0; i < FLAGS_node_size; ++i) {
             //change the ptr to a unsigned long number then add offset to that number
             QueueNode * pNode = (QueueNode *)((uintptr_t)nodePtr_ + getNodeSize()*i);
-            pNode->memIndex_ = i+1;
+
+            if(FLAGS_queue_impl_type == 4) {
+                //zero for head
+                pNode->memIndex_ = i+1;
+            }
+            else {
+                //zero for head, one for tail
+                pNode->memIndex_ = i+2;
+            }
+            
             if(pNode->isBusy_ == 1) {
                 busyNodeCnt++;
             }
@@ -266,7 +275,7 @@ struct MSQueueTestBase : public BaseMwCas {
 
         LOG(ERROR) << "**************************thread " << thread_index << " recover time:" 
             << revTime << " micro seconds ***************************" << std::endl;
-        
+
         WaitForStart();
 
         if(getDescPool() != NULL) {
@@ -303,6 +312,10 @@ struct MSQueueTestBase : public BaseMwCas {
         LOG(INFO) << thread_index << ", total_success_: " << total_success_
 	            << ", enqNum_:" << enqNum_ << ", deqNum_:" << deqNum_ << std::endl;
         
+    }
+
+    virtual void doSomething()
+    {
     }
 
     uint64_t getQueueSize() {
@@ -344,7 +357,7 @@ struct MSQueueTestBase : public BaseMwCas {
     QueueNode ** queueHead_;
     QueueNode ** queueTail_;
     
-private:
+protected:
     EntryNodePool* nodePoolTbl_;
     QueueNode * nodePtr_;
 
@@ -376,9 +389,6 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     }
 
     uint64_t getExtraSize() {
-        //return sizeof(QueueNode **) * FLAGS_threads + sizeof(QueueNode **) * FLAGS_threads
-            //+ sizeof(uint64_t **) * FLAGS_threads;
-        //return 64*3* FLAGS_threads;
         return 64*2* FLAGS_threads;
     }
 
@@ -396,9 +406,6 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
         threadEnqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset);
         threadDeqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset +  
                 64 * FLAGS_threads);
-        //deqDataAddr_ = (uint64_t **)((uintptr_t)segment->GetMapAddress() + extraOffset +  
-                //64 * FLAGS_threads * 2);
-                
         printExtraInfo();
     }
 
@@ -420,11 +427,6 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
             if(deqNode != NULL) {
                 printOneNode(deqNode);
             }
-
-            /*uint64_t ** deqDataAddr = deqDataAddr_+i*8;
-            uint64_t * deqDataPtr = (*deqDataAddr);
-            std::cout << "deqDataAddr. i:" << i << ", addr:" << deqDataAddr 
-                << ", deqDataPtr:" << (deqDataPtr) << std::endl;*/
         }
     }
 
@@ -559,7 +561,7 @@ struct MSQueueTPMWCasest : public MSQueueTestBase {
     
     QueueNode ** threadEnqAddr_;
     QueueNode ** threadDeqAddr_;
-    //uint64_t ** deqDataAddr_;
+
 
 private:
     DescriptorPool* descPool_;
@@ -752,6 +754,120 @@ struct MSQueuePMWCasV3Test : public MSQueueTPMWCasest {
     MSQueueByPMWCasV3 * msQueue_;
 
 };
+
+
+//MSQueueRCASTest begin///////////////////////////////////////////////////////////////////////////
+
+struct MSQueueRCASTest : public MSQueueTPMWCasest {
+    uint64_t getDescriptorSizeSize() {
+        return 0;
+    }
+
+    void initDescriptorPool(SharedMemorySegment* segment) {
+    }
+
+    virtual BaseDescriptorPool* getDescPool() {
+        return nullptr;
+    }
+
+    uint64_t getExtraSize() {
+        return 64*2* FLAGS_threads+
+            + sizeof(uint64_t) * (FLAGS_node_size+2) * FLAGS_threads;
+    }
+
+    void initOther(SharedMemorySegment* segment, uint64_t extraOffset) {
+        threadEnqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset);
+        threadDeqAddr_ = (QueueNode**)((uintptr_t)segment->GetMapAddress() + extraOffset +  
+                64 * FLAGS_threads);
+        printExtraInfo();
+
+        processInfoArray_ = (uint64_t*)((uintptr_t)segment->GetMapAddress() 
+            + extraOffset + 2 * 64 * FLAGS_threads);
+        std::cout << "processInfoArray_:" << processInfoArray_ << std::endl;
+
+        casOpArray_ = reinterpret_cast<RCAS*>(Allocator::Get()->Allocate(
+            sizeof(RCAS)*(FLAGS_node_size+2)));
+        std::cout << "casOpArray_:" << casOpArray_ << std::endl;
+
+        new(casOpArray_) RCAS((uint64_t *)queueHead_, processInfoArray_, FLAGS_threads);
+        new(casOpArray_+1) RCAS((uint64_t *)queueTail_, processInfoArray_+FLAGS_threads, FLAGS_threads);
+        
+        for(uint32_t i = 0; i < FLAGS_node_size; ++i) {
+            QueueNode * pNode = (QueueNode *)((uintptr_t)nodePtr_ + getNodeSize()*(i));
+
+            uint32_t index = pNode->memIndex_;
+            if(index < 2) {
+                std::cout << "i:" << i << ", index:" << index << ", pNode:"  << pNode << std::endl;
+                RAW_CHECK(index<2, "index wrong value");
+            }
+            
+            new(casOpArray_+index) RCAS((uint64_t *)((uintptr_t)pNode+8), 
+                processInfoArray_+index*FLAGS_threads, FLAGS_threads);
+        }
+    }
+
+    virtual void doSomething()
+    { 
+        QueueNode * last = (QueueNode *)((RCAS *)(casOpArray_+1)->readValue());
+        LOG(ERROR) << "**************************last " << last << std::endl;
+        LOG(ERROR) << "target addr " << (casOpArray_+1)->targetAddr_ << std::endl;
+        
+        LOG(ERROR) << "tail: " << queueTail_ << ", *tail:" << (*queueTail_) << std::endl;
+    }
+    
+    void initMSQueue() {
+        msQueue_ = reinterpret_cast<MSQueueByRecoverCAS*>(Allocator::Get()->Allocate(
+            sizeof(MSQueueByRecoverCAS)));
+        new(msQueue_) MSQueueByRecoverCAS(queueHead_, queueTail_, casOpArray_);
+    }
+
+    virtual void rawEnque(QueueNode ** threadEnqAddr, size_t thread_index) {
+        msQueue_->enq(threadEnqAddr, thread_index);
+    }
+
+    void recover(size_t thread_index) {
+    }
+
+    void enqueue(size_t thread_index, uint64_t * pData = NULL) {
+        QueueNode * newNode = allocateNode(thread_index);
+
+        QueueNode ** threadEnqAddr = threadEnqAddr_+thread_index*8;
+        *threadEnqAddr = newNode;
+        NVRAM::Flush(sizeof(QueueNode *), (const void*)threadEnqAddr);
+
+        newNode->next_ = NULL;
+        newNode->pData_ = pData;
+        newNode->isBusy_= 1;
+        //printOneNode(newNode);
+        NVRAM::Flush(sizeof(QueueNode), (const void*)newNode);
+
+        rawEnque(threadEnqAddr, thread_index);
+    }
+    
+    bool dequeue(size_t thread_index) {
+        QueueNode ** threadDeqAddr = threadDeqAddr_+thread_index*8;
+
+        msQueue_->deq(threadDeqAddr, thread_index);
+
+        QueueNode * deqNode = (*threadDeqAddr);
+        if(deqNode != NULL) {
+            cleanDeqNode(thread_index, deqNode);
+            *threadDeqAddr = NULL;
+            NVRAM::Flush(sizeof(QueueNode *), (const void*)threadDeqAddr);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    uint64_t * processInfoArray_;
+    RCAS * casOpArray_;
+
+    MSQueueByRecoverCAS * msQueue_;
+
+};
+
 
 //MSQueueByOrgCasTest begin///////////////////////////////////////////////////////////////////////////
 
@@ -1181,6 +1297,11 @@ void runBenchmark() {
     else if(FLAGS_queue_impl_type == 4) {
         std::cout << "************MSQueuePMWCasV3Test test***************" << std::endl;
         MSQueuePMWCasV3Test test;
+        doTest(test);
+    }
+    else if(FLAGS_queue_impl_type == 5) {
+        std::cout << "************MSQueueRCAS test***************" << std::endl;
+        MSQueueRCASTest test;
         doTest(test);
     }
     else if(FLAGS_queue_impl_type == 3) {

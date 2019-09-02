@@ -53,7 +53,7 @@ bool RCAS::Cas(uint64_t oldValue, uint64_t newValue, uint64_t seq, uint64_t proc
         return true;
     }
     else {
-        NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));
+        //NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));
         return false;
     }
 

@@ -26,7 +26,7 @@ public:
     static const uint64_t seqIdFlg = (uint64_t)0XFF << 56;
     static const uint64_t processBoolFlg = ~seqIdFlg;
     
-private:
+//private:
     //seq 8 bit; processId 8 bit; value 48bit
     uint64_t * targetAddr_;
     uint64_t * processInfoStore_;
