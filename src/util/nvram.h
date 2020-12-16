@@ -10,6 +10,8 @@
 #include "glog/logging.h"
 #include "glog/raw_logging.h"
 #include "include/environment.h"
+#include <libpmem.h>
+
 
 namespace pmwcas {
 
@@ -59,12 +61,23 @@ struct NVRAM {
   static inline void Flush(uint64_t bytes, const void* data) {
     if(use_clflush) {
       RAW_CHECK(data, "null data");
+
+      pmem_persist(data, bytes);
+
+
+
+#if 0    
       uint64_t ncachelines = (bytes + kCacheLineSize - 1) / kCacheLineSize;
       // Flush each cacheline in the given [data, data + bytes) range
       for(uint64_t i = 0; i < ncachelines; ++i) {
         _mm_clflush(&((char*)data)[i * ncachelines]);
       }
-    } else {
+#endif
+
+
+
+    } 
+    else {
 #if 0
       // Previously this was calculated outside the [if] block, slowing down
       // read-only workloads (slower than with clflush).

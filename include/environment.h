@@ -198,6 +198,11 @@ class IEnvironment {
   virtual Status NewSharedMemorySegment(const std::string& segname,
       uint64_t size, bool open_existing, SharedMemorySegment** seg) = 0;
 
+  virtual void NewPMdMemorySegment(const std::string& segname,
+      uint64_t size, SharedMemorySegment** seg) 
+  {
+  }
+
   /// Produce a new threadpool for the target OS.
   virtual Status NewThreadPool(uint32_t max_threads, ThreadPool** pool) = 0;
 

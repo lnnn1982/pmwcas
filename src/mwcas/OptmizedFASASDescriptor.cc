@@ -22,22 +22,18 @@ void OptmizedFASASDescriptor::setSharedAddress(uint64_t* sharedAddress) {
 bool OptmizedFASASDescriptor::process(uint64_t oldval, uint64_t newval,
     OptmizedFASASDescriptorPool & pool, uint32_t locationId)
 {
-    //this persist not necessary
-    
-    /*uint64_t val = FASASDescriptor::persistTargetAddrValue(sharedAddress_);
-    uint64_t actualValue = val & ActualValueFlg;
-    if(actualValue != oldShareVarValue_) return false;*/
-
     uint64_t val = *sharedAddress_;
     uint64_t actualValue = (*sharedAddress_) & ActualValueFlg;
-    if(actualValue != oldval) return false;
+    
 
     uint16_t otherProcessId = (uint16_t)((uint64_t)(val & OptmizedFASASDescriptor::ProcessIdFlg)
         >> 48);
     if(otherProcessId != 0 && otherProcessId != processId_) {
         OptmizedFASASDescriptor * odescr = pool.getDescriptor(otherProcessId-1, locationId);
-        odescr->helpProcess(val);
+        odescr->helpProcess((val & OptmizedFASASDescriptor::SeqIdFlg) >>60, actualValue, oldval);
     }
+
+    if(actualValue != oldval) return false;
 
     oldShareVarValue_ = oldval;
     newShareVarValue_ = newval;
@@ -80,11 +76,10 @@ bool OptmizedFASASDescriptor::addDescriptorToShareVar(uint64_t orgVal)
     return  ret == orgVal;
 }
 
-void OptmizedFASASDescriptor::helpProcess(uint64_t val) {
+void OptmizedFASASDescriptor::helpProcess(uint64_t seqId, uint64_t actualValue, uint64_t oldVal) {
     if(isShareVarSet_) {
         return;
     }
-    uint64_t seqId = (val & OptmizedFASASDescriptor::SeqIdFlg) >>60;
     if(seqId != getSeqId()) return;
 
     //the values may be different.
@@ -95,6 +90,8 @@ void OptmizedFASASDescriptor::helpProcess(uint64_t val) {
         return;
     }
     NVRAM::Flush(sizeof(uint64_t), sharedAddress_);
+
+    if(oldVal != actualValue) return;
 
     uint64_t orgStatusInfo = (seqId << 60) | FASASDescriptor::FailedStatus;
     uint64_t newStatusInfo = (seqId << 60) | FASASDescriptor::SuccStatus;
@@ -134,7 +131,7 @@ void OptmizedFASASDescriptor::changePrivateValueSucc() {
         *privateAddress_ = FASASDescriptor::getDCASValue(opType_);
     }
     else {
-        *privateAddress_ = newShareVarValue_;
+        *privateAddress_ = oldShareVarValue_;
     }
 
     NVRAM::Flush(sizeof(uint64_t), (void*)privateAddress_);

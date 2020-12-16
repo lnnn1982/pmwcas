@@ -35,6 +35,7 @@ void MSQueueByPMWCasV2::deq(QueueNode ** privateAddr) {
             if(first == last) {
                 //empty
                 if(firstNext == NULL) {
+                    NVRAM::Flush(sizeof(QueueNode *), (const void*)(privateAddr));
                     return;
                 }
                 else {
@@ -88,6 +89,7 @@ void MSQueueByPMWCasV3::deq(QueueNode ** privateAddr, size_t thread_index) {
             if(first == last) {
                 //empty
                 if(firstNext == NULL) {
+                    NVRAM::Flush(sizeof(QueueNode *), (const void*)(privateAddr));
                     return;
                 }
                 else {

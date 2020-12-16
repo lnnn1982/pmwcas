@@ -3,7 +3,7 @@
 
 namespace pmwcas {
 
-void MSQueueByOrgCas::enq(OrgCasNode ** privateAddr) {
+void MSQueueByOrgCas::enq(OrgCasNode ** privateAddr, int detectType) {
     OrgCasNode * newNode = (*privateAddr);
     RAW_CHECK(nullptr != newNode, "MSQueueByOrgCas::enq node null");
 
@@ -15,9 +15,13 @@ void MSQueueByOrgCas::enq(OrgCasNode ** privateAddr) {
                 if(CompareExchange64((QueueNode **)(&(last->next_)), (QueueNode *)newNode, (QueueNode *)next) == next) {
                     NVRAM::Flush(sizeof(newNode), (const void*)(&(last->next_)));
                     *(volatile QueueNode **)privateAddr = NULL;
-                    //recover not need to know the acutuall operation.
-                    //NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
+
+                    if(detectType == 0 || detectType == 1) {
+                        NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
+                    }
+
                     CompareExchange64(ptail_, (QueueNode *)newNode, last);
+
                     return;
                 }
             }
@@ -30,7 +34,7 @@ void MSQueueByOrgCas::enq(OrgCasNode ** privateAddr) {
 }
 
 
-bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {                      
+bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index, int detectType) {                      
     while (true) {
         OrgCasNode * first = (OrgCasNode *)(*phead_);
         OrgCasNode * last = (OrgCasNode *)(*ptail_);
@@ -40,6 +44,11 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
             if(first == last) {
                 //empty
                 if(next == NULL) {
+                    *privateAddr = NULL;
+                    if(detectType == 1) {
+                        NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
+                    }
+
                     return false;
                 }
                 else {
@@ -58,10 +67,13 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
                 }
                 
                 *privateAddr = first;
-                NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
-            
+                if(detectType == 0 || detectType == 1) {
+                    NVRAM::Flush(sizeof(OrgCasNode *), (const void*)(privateAddr));
+                }
+                
                 if(CompareExchange64(&first->del_thread_index_, thread_index, (size_t)-1) == -1) {
                     NVRAM::Flush(sizeof(first->del_thread_index_), (const void*)(&first->del_thread_index_));
+
                     if(first == (*phead_)) {
                         CompareExchange64(phead_, (QueueNode*)next, (QueueNode*)first);
                     }
@@ -83,6 +95,10 @@ bool MSQueueByOrgCas::deq(OrgCasNode ** privateAddr, size_t thread_index) {
     }
 }
 
+void MSQueueByOrgCas::recover() {
+}
+
+
 void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> const & enqNodeMap, 
         std::unordered_map<OrgCasNode *, OrgCasNode **> const & deqNodeMap,
         size_t thread_index) 
@@ -91,12 +107,13 @@ void MSQueueByOrgCas::recover(std::unordered_map<OrgCasNode *, OrgCasNode **> co
         //<< ", deqNodeMap size:" << deqNodeMap.size() << std::endl;
 
     OrgCasNode * curNode = (OrgCasNode *)(*phead_);
-    while(!isRecoverFinish_) {
+    //while(!isRecoverFinish_) {
+    while(true) {
         checkEnqNode(enqNodeMap, curNode, thread_index);
         OrgCasNode * next = (OrgCasNode *)curNode->next_;
 
         if(next == NULL) {
-            isRecoverFinish_ = true;
+            //isRecoverFinish_ = true;
             break;
         }
         

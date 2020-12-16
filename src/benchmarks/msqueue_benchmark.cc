@@ -177,7 +177,7 @@ struct MSQueueTestBase : public BaseMwCas {
             uint32_t len = 0;
             while(curNode) {
                 len++;
-                curNode = curNode->poolNext_;
+                curNode =(QueueNode *)curNode->poolNext_;
             }
 
             std::cout << "threadNum:" << i << ", node pool len:" << len << std::endl;
@@ -1199,7 +1199,7 @@ struct MSLogQueueTest : public MSQueueTestBase {
             uint32_t len = 0;
             while(curLog) {
                 len++;
-                curLog = curLog->poolNext_;
+                curLog = (LogEntry *)curLog->poolNext_;
             }
 
             std::cout << "threadNum:" << i << ", log pool len:" << len << std::endl;

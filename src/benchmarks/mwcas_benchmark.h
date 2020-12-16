@@ -29,8 +29,10 @@ DEFINE_uint64(seconds, 30, "default time to run a benchmark");
 DEFINE_uint64(metrics_dump_interval, 0, "if greater than 0, the benchmark "
               "driver dumps metrics at this fixed interval (in seconds)");
 DEFINE_int32(affinity, 1, "affinity to use in scheduling threads");
-DEFINE_uint64(descriptor_pool_size, 4194304, "number of total descriptors");
-DEFINE_string(shm_segment, "lnmwcas", "name of the shared memory segment for"
+DEFINE_uint64(descriptor_pool_size, 8388608, "number of total descriptors");
+//DEFINE_string(shm_segment, "pmem_stripe", "name of the shared memory segment for"
+    //" descriptors and data (for persistent MwCAS only)");
+DEFINE_string(shm_segment, "pmem_numa0", "name of the shared memory segment for"
     " descriptors and data (for persistent MwCAS only)");
 DEFINE_int32(enable_stats, 1, "whether to enable stats on MwCAS internal"
     " operations");
@@ -138,7 +140,7 @@ struct BaseMwCas : public Benchmark {
 
   ///////////////////////////////////////////////////////////////////////////////
 
-  SharedMemorySegment* initSharedMemSegment(std::string const & segmentName, uint64_t size) {
+  /*SharedMemorySegment* initSharedMemSegment(std::string const & segmentName, uint64_t size) {
     SharedMemorySegment* segment = nullptr;
     auto s = Environment::Get()->NewSharedMemorySegment(segmentName, size, true,
         &segment);
@@ -184,7 +186,29 @@ struct BaseMwCas : public Benchmark {
         << std::hex << metadata->initial_address << std::endl;
 
     return segment;
+  }*/
+
+  SharedMemorySegment* initSharedMemSegment(std::string const & segmentName, uint64_t size) {
+    std::string fulSegName = "/mnt/" + segmentName + "/lnnn/lnwcas";
+    size = 42949672960L;
+    SharedMemorySegment* segment = nullptr;
+    Environment::Get()->NewPMdMemorySegment(fulSegName, size, &segment);
+    //Environment::Get()->NewPMdMemorySegment("/mnt/pmem_stripe/lnnn/lnwcas", size, &segment);
+    
+    // New pool/data area, store this base address, pass it + meatadata_size
+    // as desc pool va
+    isNewMem_ = true;
+    void* map_address = segment->GetMapAddress();
+    DescriptorPool::Metadata *metadata = (DescriptorPool::Metadata*)map_address;
+    metadata->descriptor_count = FLAGS_descriptor_pool_size;
+    metadata->initial_address = (uintptr_t)map_address;
+    std::cout << "initSharedMemSegment size:" << std::dec << size << ", isNewMem_:" << isNewMem_ << std::endl;
+    std::cout << "descriptor_count::" << std::dec << metadata->descriptor_count << ", initial_address:"
+        << std::hex << metadata->initial_address << std::endl;
+
+    return segment;
   }
+
 
   virtual BaseDescriptorPool* getDescPool() {
     return NULL;

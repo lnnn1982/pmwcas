@@ -16,7 +16,7 @@ DEFINE_uint64(array_size, 5000, "size of the word array for mwcas benchmark");
 DEFINE_string(benchmarks, "MSQUEUE", "");
 DEFINE_int32(FASAS_BASE_TYPE, 1, "fetch store store base type ");
 //DEFINE_uint64(node_size, 1048576, "");
-DEFINE_uint64(node_size, 16777216, "");
+DEFINE_uint64(node_size, 8388608, "");
 
 using namespace pmwcas;
 
@@ -27,8 +27,21 @@ void testPrint() {
     }
 }
 
+void allocateMemory() {
+    std::string segmentName = "/mnt/pmem_numa0/lnnn/lnwcas";
+    uint64_t size = 42949672960L;
+    SharedMemorySegment* segment = nullptr;
+    Environment::Get()->NewPMdMemorySegment(segmentName, size, &segment);
+
+    std::cout << "begin memset" << std::endl;
+    //memset(segment->GetMapAddress(), 0, size);
+    std::cout << "end memset" << std::endl;
+}
+
+
 // Start a process to create a shared memory segment and sleep
 int main(int argc, char* argv[]) {
+#if 0
   google::InitGoogleLogging(argv[0]);
   google::ParseCommandLineFlags(&argc, &argv, true);
 
@@ -61,12 +74,20 @@ int main(int argc, char* argv[]) {
   }
   else if(benchmark == "MSQUEUE") {
       size = sizeof(DescriptorPool::Metadata) +
-                  sizeof(Descriptor) * FLAGS_descriptor_pool_size;  // descriptors area
-      size += 128*FLAGS_node_size; //queue node size
-      size += 64*FLAGS_node_size; //log node size
-      size += 64*2; //queue head tail size
-      size += FLAGS_threads * 1024; //extra size
+                  sizeof(Descriptor) * 134217728;  // descriptors area
+      std::cout << "size:" << std::dec << size << std::endl;
 
+      size += 64*FLAGS_node_size; //queue node size
+      std::cout << "size:" << std::dec << size << std::endl;
+
+      size += 64*FLAGS_node_size; //log node size
+      std::cout << "size:" << std::dec << size << std::endl;
+
+      size += 64*2; //queue head tail size
+      std::cout << "size:" << std::dec << size << std::endl;
+
+
+      size += FLAGS_threads * 1024; //extra size
       std::cout << "size:" << size << std::endl;
   }
   else {//for recover mutex and fetch store and store
@@ -113,6 +134,13 @@ int main(int argc, char* argv[]) {
   std::cout << "Created shared memory segment" << std::endl;
   cv.wait(lock);
 */
+
+#endif
+
+  pmwcas::InitLibrary(pmwcas::DefaultAllocator::Create,
+      pmwcas::DefaultAllocator::Destroy, pmwcas::LinuxEnvironment::Create,
+      pmwcas::LinuxEnvironment::Destroy);
+  allocateMemory();
 
   std::cout << "exit" << std::endl;
   return 0;

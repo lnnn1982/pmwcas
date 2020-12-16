@@ -218,6 +218,9 @@ struct MwCas : public BaseMwCas {
 struct BaseFASASTest : public BaseMwCas {
 
   void Main(size_t thread_index) {
+    //LOG(ERROR) << "Main run. thread_index:" << thread_index;
+
+  
     auto s = MwCASMetrics::ThreadInitialize();
 	RAW_CHECK(s.ok(), "Error initializing thread");
 
@@ -237,7 +240,9 @@ struct BaseFASASTest : public BaseMwCas {
     WaitForStart();
 
     FetchStoreStore fetchStoreStore;
-	descPool->GetEpoch()->Protect();
+    if(descPool != NULL) {
+        descPool->GetEpoch()->Protect();
+    }
 		
 	uint64_t n_success = 0;
 	uint64_t newValue = 0;
@@ -284,7 +289,9 @@ struct BaseFASASTest : public BaseMwCas {
 	  n_success += 1;
     }
 
-    descPool->GetEpoch()->Unprotect();
+    if(descPool != NULL) {
+        descPool->GetEpoch()->Unprotect();
+    }
 		
 	auto n = total_success_.fetch_add(n_success, std::memory_order_seq_cst);
 	LOG(INFO) << "Thread " << thread_index << " n_success: " <<
@@ -433,43 +440,30 @@ struct FASASTest : public BaseFASASTest {
       NVRAM::InitializeSpin(FLAGS_write_delay_ns, FLAGS_emulate_write_bw);
     }
 
+    uint64_t descSize = sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size;
+    if(FLAGS_FASAS_BASE_TYPE != 1) {
+        descSize = sizeof(OptmizedFASASDescriptor) * FLAGS_descriptor_pool_size;
+    }
+    
     std::string segname(FLAGS_shm_segment);
     uint64_t size = sizeof(DescriptorPool::Metadata) +
-                    sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +  // descriptors area
+                    descSize +  // descriptors area
                     sizeof(FASASCasPtr) * FLAGS_array_size + // share data area
                     sizeof(FASASCasPtr) * FLAGS_threads;  // private data area
+
     SharedMemorySegment* segment = initSharedMemSegment(segname, size);
 
-    shareArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+    shareArrayPtr_ = (uint64_t*)((uintptr_t)segment->GetMapAddress() +
         sizeof(DescriptorPool::Metadata) +
-        sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size);
-    privateArrayPtr_ = (FASASCasPtr*)((uintptr_t)segment->GetMapAddress() +
+        descSize);
+    privateArrayPtr_ = (uint64_t*)((uintptr_t)segment->GetMapAddress() +
         sizeof(DescriptorPool::Metadata) +
-        sizeof(FASASDescriptor) * FLAGS_descriptor_pool_size +
+        descSize +
         sizeof(FASASCasPtr) * FLAGS_array_size);
 	std::cout << "share array begin addr:" << shareArrayPtr_ 
         << ", private array begin addr:" << privateArrayPtr_ << std::endl;
 
     initDescriptorPool(segment);
-
-    // Recovering from an existing descriptor pool wouldn't cause the data area
-    // to be re-initialized, rather this provides us the opportunity to do a
-    // sanity check: no field should still point to a descriptor after recovery.
-    for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
-      if(BaseDescriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i])) {
-        std::cout << "share varible is descriptor ptr:" << std::hex << (uint64_t)shareArrayPtr_[i] << 
-            ", i:" << i << ", addr:" << std::hex << (&(shareArrayPtr_[i])) << std::endl;
-      }
-      RAW_CHECK(!BaseDescriptor::isDescriptorPtr((uint64_t)shareArrayPtr_[i]), "Wrong value");
-    }
-
-    for(uint32_t i = 0; i < FLAGS_threads; ++i) {
-      if(BaseDescriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i])) {
-        std::cout << "private varible is descriptor ptr:" << std::hex << (uint64_t)privateArrayPtr_[i] <<
-            ", i:" << i << ", addr:" << std::hex << (&(privateArrayPtr_[i])) << std::endl;
-      }
-      RAW_CHECK(!BaseDescriptor::isDescriptorPtr((uint64_t)privateArrayPtr_[i]), "Wrong value");
-    }
     
     // Now we can start from a clean slate (perhaps not necessary)
     for(uint32_t i = 0; i < FLAGS_array_size; ++i) {
@@ -485,40 +479,72 @@ struct FASASTest : public BaseFASASTest {
 
   void initDescriptorPool(SharedMemorySegment* segment)
   {
-    FASASDescriptor * poolDesc = (FASASDescriptor*)((uintptr_t)segment->GetMapAddress() +
-      sizeof(DescriptorPool::Metadata));
-	std::cout << "descriptor addr:" << poolDesc << std::endl;
+    if(FLAGS_FASAS_BASE_TYPE == 1) {
+      FASASDescriptor * poolDesc = (FASASDescriptor*)((uintptr_t)segment->GetMapAddress() +
+        sizeof(DescriptorPool::Metadata));
+	  std::cout << "fasas descriptor addr:" << poolDesc << std::endl;
 
-    // Ideally the descriptor pool is sized to the number of threads in the
-    // benchmark to reduce need for new allocations, etc.
-    fasasDescPool_ = reinterpret_cast<FASASDescriptorPool *>(
+      // Ideally the descriptor pool is sized to the number of threads in the
+      // benchmark to reduce need for new allocations, etc.
+      fasasDescPool_ = reinterpret_cast<FASASDescriptorPool *>(
                          Allocator::Get()->Allocate(sizeof(FASASDescriptorPool)));
-    new(fasasDescPool_) FASASDescriptorPool(
-      FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+      new(fasasDescPool_) FASASDescriptorPool(
+        FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, FLAGS_enable_stats);
+    }
+    else {
+        OptmizedFASASDescriptor * poolDesc = (OptmizedFASASDescriptor*)((
+            uintptr_t)segment->GetMapAddress() +
+            sizeof(DescriptorPool::Metadata));
+	    std::cout << "opt fasas descriptor addr:" << poolDesc << std::endl;
+
+        optFasasDescPool_ = reinterpret_cast<OptmizedFASASDescriptorPool *>(
+                         Allocator::Get()->Allocate(sizeof(OptmizedFASASDescriptorPool)));
+        new(optFasasDescPool_) OptmizedFASASDescriptorPool(
+            FLAGS_descriptor_pool_size, FLAGS_threads, poolDesc, nullptr, FLAGS_enable_stats);
+    }
   }
 
   virtual uint64_t doFASAS(uint64_t targetIdx, size_t thread_index,
           uint64_t newValue, FetchStoreStore & fetchStoreStore) 
   {
-    FASASCasPtr* targetAddress = reinterpret_cast<FASASCasPtr*>(&(shareArrayPtr_[targetIdx])); 
-	FASASCasPtr* storeAddress = reinterpret_cast<FASASCasPtr*>(&(privateArrayPtr_[thread_index]));
-    return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
-
-    /*if(FLAGS_FASAS_BASE_TYPE == 1) {
-      return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
+    if(FLAGS_FASAS_BASE_TYPE == 1) {
+        FASASCasPtr* targetAddress = reinterpret_cast<FASASCasPtr*>(shareArrayPtr_+targetIdx); 
+	    FASASCasPtr* storeAddress = reinterpret_cast<FASASCasPtr*>(privateArrayPtr_+thread_index);
+        return fetchStoreStore.process(targetAddress, storeAddress, newValue, fasasDescPool_);
     }
     else {
-      return fetchStoreStore.processByMwcas(targetAddress, storeAddress, newValue, fasasDescPool_);
-    }*/
+      return fetchStoreStore.fasas(shareArrayPtr_+targetIdx, privateArrayPtr_+thread_index, 
+        newValue, targetIdx, thread_index, optFasasDescPool_);
+    }
   }
 
   virtual BaseDescriptorPool* getDescPool() {
-    return fasasDescPool_;
+    if(FLAGS_FASAS_BASE_TYPE == 1) {
+      return fasasDescPool_;
+    }
+    else {
+      return NULL;
+    }
+    
   }       
 	
   void Teardown() {
     if(FLAGS_enable_linearcheck_log) {
       return;
+    }
+
+    if(FLAGS_FASAS_BASE_TYPE != 1) {
+        for(uint32_t i = 0; i < FLAGS_array_size; i++) {
+          uint64_t val = shareArrayPtr_[i] & OptmizedFASASDescriptor::ActualValueFlg;
+          LOG(INFO) << "pos=" << i << ", val=" << val;
+          RAW_CHECK(val % 4 == 0, "share value not multi of 4");
+        }
+
+        for(uint32_t i = 0; i < FLAGS_threads; i++) {
+          LOG(INFO) << "private value:" << (uint64_t)privateArrayPtr_[i];
+          RAW_CHECK((uint64_t)privateArrayPtr_[i] % 4 == 0, "private value not multi of 4");
+        }
+        return;
     }
     
     for(uint32_t i = 0; i < FLAGS_array_size; i++) {
@@ -536,10 +562,14 @@ struct FASASTest : public BaseFASASTest {
   }
 
 	
-  FASASCasPtr* shareArrayPtr_;
-  FASASCasPtr* privateArrayPtr_;
+  //FASASCasPtr* shareArrayPtr_;
+  //FASASCasPtr* privateArrayPtr_;
 
+  uint64_t * shareArrayPtr_;
+  uint64_t * privateArrayPtr_;
+  
   FASASDescriptorPool* fasasDescPool_;
+  OptmizedFASASDescriptorPool * optFasasDescPool_;
 } ;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////

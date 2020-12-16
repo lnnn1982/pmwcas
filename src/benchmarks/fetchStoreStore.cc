@@ -37,9 +37,11 @@ uint64_t FetchStoreStore::processByOrgMwcas(CasPtr* targetAddr, CasPtr* storeAdd
                 RAW_CHECK(false, "11111111111111111");
             }*/
 
-			break;
+			 return targetValue;
 		}
 	}
+
+   
 }
 
 bool FetchStoreStore::dcasByOrgMwcas(CasPtr* targetAddr1, CasPtr* targetAddr2,

@@ -18,6 +18,9 @@
 #include "util/macros.h"
 #include <glog/logging.h>
 #include <iostream>
+#include <libpmem.h>
+
+
 
 namespace pmwcas {
 
@@ -66,6 +69,17 @@ Status LinuxEnvironment::NewSharedMemorySegment(const std::string& segname,
 
   *seg = alloc_guard.release();
   return Status::OK();
+}
+
+
+void LinuxEnvironment::NewPMdMemorySegment(const std::string& segname,
+    uint64_t size, SharedMemorySegment** seg) {
+  *seg = nullptr;
+  unique_ptr_t<SharedMemorySegment> alloc_guard;
+  PMSharedMemorySegment::Create(alloc_guard);
+  alloc_guard->Initialize(segname, size, true);
+
+  *seg = alloc_guard.release();
 }
 
 Status LinuxEnvironment::NewThreadPool(uint32_t max_threads,
@@ -180,6 +194,8 @@ Status LinuxEnvironment::SetThreadAffinity(pthread_t thread, uint64_t core,
   return Status::OK();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////
+
 LinuxSharedMemorySegment::LinuxSharedMemorySegment()
   : SharedMemorySegment()
   , segment_name_ { "" }
@@ -248,5 +264,67 @@ Status LinuxSharedMemorySegment::Detach() {
 void* LinuxSharedMemorySegment::GetMapAddress() {
   return map_address_;
 }
+
+
+///////////////////////////////////////////////////////////////////////////////////////
+
+
+
+PMSharedMemorySegment::PMSharedMemorySegment()
+  : SharedMemorySegment()
+  , map_address_ { nullptr } {
+}
+
+PMSharedMemorySegment::~PMSharedMemorySegment() {}
+
+Status PMSharedMemorySegment::Create(
+    unique_ptr_t<SharedMemorySegment>& segment) 
+{
+  std::cout << "PMSharedMemorySegment::Create" << std::endl;
+  
+  segment.reset();
+  segment = alloc_unique<SharedMemorySegment>(sizeof(PMSharedMemorySegment));
+  if(!segment.get()) return Status::OutOfMemory();
+  new(segment.get())PMSharedMemorySegment();
+
+  return Status::OK();
+}
+
+Status PMSharedMemorySegment::Initialize(const std::string& segname,
+    uint64_t size, bool open_existing) {
+  size_t len = 0;
+  int is_pmem = 0;
+  map_address_ = pmem_map_file(segname.c_str(), size, PMEM_FILE_CREATE, 0666, &len, &is_pmem);
+
+  std::cout << "pmem_map_file segname:" << segname 
+    << ", size:" << size << ", map_address_:" << map_address_
+    << ", len:" << len << ", is_pmem:" << is_pmem << std::endl;
+  return Status::OK();
+}
+
+Status PMSharedMemorySegment::Attach(void* base_address) {
+  return Status::OK();
+}
+
+Status PMSharedMemorySegment::Detach() {
+  return Status::OK();
+}
+
+void* PMSharedMemorySegment::GetMapAddress() {
+  return map_address_;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 } // namespace pmwcas

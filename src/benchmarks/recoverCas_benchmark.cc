@@ -185,7 +185,7 @@ struct RecoverCasByFASAS : public RecoverCasTestBase {
     
     virtual bool doRecoverCAS(uint64_t thread_index, uint64_t targetIdx) 
     {
-        FASASCasPtr* privateAddr = (FASASCasPtr*)(privatePtr_+targetIdx);
+        FASASCasPtr* privateAddr = (FASASCasPtr*)(privatePtr_+thread_index);
         
         FASASCasPtr* shareAddr = (FASASCasPtr*)test_array_+targetIdx;
         uint64_t oldVal = shareAddr->getValueProtectedOfSharedVar();
@@ -194,7 +194,7 @@ struct RecoverCasByFASAS : public RecoverCasTestBase {
         bool ret = fetchStoreStore_.recoverCas(shareAddr, privateAddr,
             oldVal, newVal, fasasDescPool_);
         if(ret) {
-            RAW_CHECK(*(privatePtr_+targetIdx) == 1, "privateValue is wrong");
+            RAW_CHECK(*(privatePtr_+thread_index) == 1, "privateValue is wrong");
         }
 
         return ret;

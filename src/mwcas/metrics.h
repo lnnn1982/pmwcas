@@ -49,6 +49,7 @@ struct MwCASMetrics {
 
   friend MwCASMetrics operator-(MwCASMetrics left, const MwCASMetrics& right) {
     left -= right;
+    return left;
   }
 
   MwCASMetrics()

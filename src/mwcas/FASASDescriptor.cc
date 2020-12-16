@@ -154,7 +154,7 @@ retry:
     return  ret;
 }
 
-void FASASDescriptor::changeShareValue() {
+/*void FASASDescriptor::changeShareValue() {
 	uint64_t val = word_.new_value_|kDirtyFlag;
 
     uint64_t descptr = SetFlags(this, kMwCASFlag);
@@ -164,7 +164,7 @@ void FASASDescriptor::changeShareValue() {
     }
 
     persistTargetAddrValue(word_.address_);
-}
+}*/
 
 void FASASDescriptor::changeShareValueWithoutFlush() {
 	uint64_t val = word_.new_value_;
@@ -176,7 +176,7 @@ void FASASDescriptor::changeShareValueWithoutFlush() {
     }
 }
 
-uint64_t FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
+/*uint64_t FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
     uint64_t val = *address;
     if(val & kDirtyFlag) {
         NVRAM::Flush(sizeof(uint64_t), (void*)address);
@@ -185,7 +185,7 @@ uint64_t FASASDescriptor::persistTargetAddrValue(uint64_t* address) {
     }
 
     return val;
-}
+}*/
 
 void FASASDescriptor::persistSuccStatus() {
     uint64_t cleanPrivateAddr = (uint64_t)getPrivateAddress();
@@ -200,6 +200,7 @@ void FASASDescriptor::persistSuccStatus() {
         CompareExchange64((uint64_t *)&privateAddress_, 
             StatusAddr, cleanPrivateAddr);
     }
+
     if(isPrivateValueSet() == 1) return;
     NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
 
@@ -213,7 +214,7 @@ void FASASDescriptor::persistSuccStatus() {
 void FASASDescriptor::changePrivateValueSucc() {
     uint64_t * privateAddrss = getPrivateAddress();
     if(isRecoverCAS(opType_)) {
-        *privateAddrss = 1;
+        *privateAddrss = (uint64_t)1;
     }
     else if(isDoubleCAS(opType_)) {
         *privateAddrss = getDCASValue(opType_);
@@ -225,10 +226,10 @@ void FASASDescriptor::changePrivateValueSucc() {
     NVRAM::Flush(sizeof(uint64_t), (void*)privateAddrss);
 
     uint64_t tmpPrivateAddr = (uint64_t)((uint64_t)privateAddrss|StatusFlg);
-    CompareExchange64((uint64_t *)&privateAddress_, 
-	       tmpPrivateAddr|IsPrivateValueSetFlg, tmpPrivateAddr);
+    //CompareExchange64((uint64_t *)&privateAddress_, 
+	       //tmpPrivateAddr|IsPrivateValueSetFlg, tmpPrivateAddr);
 
-    //privateAddress_ = (uint64_t *)(tmpPrivateAddr|IsPrivateValueSetFlg);
+    privateAddress_ = (uint64_t *)(tmpPrivateAddr|IsPrivateValueSetFlg);
 
     NVRAM::Flush(sizeof(privateAddress_), &privateAddress_);
 }

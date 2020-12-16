@@ -36,7 +36,7 @@ class CoreLocal {
     core_count_ = sysconf(_SC_NPROCESSORS_ONLN);
 #endif
 
-	core_count_ = 64;
+	core_count_ = 80;
 
     RAW_CHECK(core_count_, "invalid core count");
 

@@ -61,7 +61,7 @@ public:
         return (statusInfo_ & SeqIdFlg) >> 60;
     }
 
-    void helpProcess(uint64_t val);
+    void helpProcess(uint64_t seqId, uint64_t actualValue, uint64_t oldVal);
     void helpWithShareValue(uint64_t val);
     
     static uint64_t getValueProtectedOfSharedVar(uint64_t * addr,

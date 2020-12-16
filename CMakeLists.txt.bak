@@ -19,14 +19,14 @@ if(WIN32)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG /OPT:REF /OPT:NOICF /INCREMENTAL:NO")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG /OPT:REF /OPT:NOICF /INCREMENTAL:NO")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wno-error")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 
   #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma -pg")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma -lpmemobj -lpmem")
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma -lpmemobj -lpmem")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -lgtest -lglog -lgflags -lpthread -lrt -lnuma")
 endif()
 
 #Always set _DEBUG compiler directive when compiling bits regardless of target OS
@@ -265,7 +265,7 @@ if(WIN32)
   set (PMWCAS_TEST_LINK_LIBS ${PMWCAS_TEST_LINK_LIBS} shlwapi)
 else()
   set (PMWCAS_TEST_LINK_LIBS ${PMWCAS_LINK_LIBS})
-  set (PMWCAS_TEST_LINK_LIBS ${PMWCAS_TEST_LINK_LIBS} "-lgtest -lglog -lgflags -lpthread -lrt -lnuma -lpmemobj -lpmem")
+  set (PMWCAS_TEST_LINK_LIBS ${PMWCAS_TEST_LINK_LIBS} "-lgtest -lglog -lgflags -lpthread -lrt -lnuma")
 endif()
 
 # Set the link libraries to for benchmark binary compilation
@@ -274,7 +274,7 @@ if(WIN32)
   # shlwapi is needed for gflags when compiling on windows
   set (PMWCAS_BENCHMARK_LINK_LIBS ${PMWCAS_BENCHMARK_LINK_LIBS} shlwapi)
 else()
-  set (PMWCAS_BENCHMARK_LINK_LIBS ${PMWCAS_BENCHMARK_LINK_LIBS} "-lgtest -lglog -lgflags -lpthread -lrt -lnuma -lpmemobj -lpmem")
+  set (PMWCAS_BENCHMARK_LINK_LIBS ${PMWCAS_BENCHMARK_LINK_LIBS} "-lgtest -lglog -lgflags -lpthread -lrt -lnuma")
 endif()
 
 #Function to automate building test binaries with appropriate environment sources

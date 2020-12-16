@@ -26,7 +26,10 @@ bool RCAS::Cas(uint64_t oldValue, uint64_t newValue, uint64_t seq, uint64_t proc
             "existProcessId out of bound");
     }
 
-    if(existValue != oldValue) return false;
+    if(existValue != oldValue) {
+        NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));
+return false;
+        }
 
     //need this. because last suc thread may fail without flushing the addr
     NVRAM::Flush(sizeof(uint64_t), (const void*)(targetAddr_));

@@ -48,6 +48,28 @@ class LinuxSharedMemorySegment : public SharedMemorySegment {
   void* map_address_;
 };
 
+class PMSharedMemorySegment : public SharedMemorySegment {
+ public:
+  PMSharedMemorySegment();
+  ~PMSharedMemorySegment();
+
+  static Status Create(unique_ptr_t<SharedMemorySegment>& segment);
+
+  virtual Status Initialize(const std::string& segname, uint64_t size, bool open_existing) override;
+
+  virtual Status Attach(void* base_address = nullptr) override;
+
+  virtual Status Detach() override;
+
+  virtual void* GetMapAddress() override;
+
+  //virtual DumpToFile(const std::string& filename) override;
+
+ private:
+  void* map_address_;
+};
+
+
 class LinuxEnvironment : public IEnvironment {
  public:
   LinuxEnvironment();
@@ -81,6 +103,8 @@ class LinuxEnvironment : public IEnvironment {
 
   virtual Status NewSharedMemorySegment(const std::string& segname, uint64_t size,
                                         bool open_existing, SharedMemorySegment** seg) override;
+  virtual void NewPMdMemorySegment(const std::string& segname, uint64_t size, 
+    SharedMemorySegment** seg);
 
   virtual Status NewThreadPool(uint32_t max_threads,
                                ThreadPool** pool) override;
